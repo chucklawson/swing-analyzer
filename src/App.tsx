@@ -327,7 +327,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       {videoUrl ? (
         <>
           <div className="flex-1 flex items-end w-full">
-            <div ref={containerRef} className="relative w-full overflow-hidden rounded-xl">
+            <div ref={containerRef} className="relative w-full overflow-hidden rounded-xl" style={{ touchAction: (zoomMode && isIOS) ? 'none' : undefined }}>
               <video
                 ref={videoRef}
                 key={videoUrl}
@@ -349,6 +349,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                 onClick={handleCanvasClick}
                 onTouchEnd={handleCanvasTouchEnd}
               />
+
+              {/* Zoom mode prompt — iOS pinch hint */}
+              {zoomMode && !zoom && isIOS && (
+                <div className="absolute bottom-3 left-3 bg-black/75 text-white text-sm font-medium px-4 py-1.5 rounded-full pointer-events-none z-10 select-none">
+                  Pinch to zoom
+                </div>
+              )}
 
               {/* Draw mode prompt */}
               {drawMode && (
