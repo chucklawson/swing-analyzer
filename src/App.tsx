@@ -333,6 +333,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                 key={videoUrl}
                 src={videoUrl}
                 className="w-full block shadow-2xl bg-black"
+                playsInline
                 style={zoom ? {
                   transform: `scale(${zoom.scale})`,
                   transformOrigin: `${zoom.originX}px ${zoom.originY}px`,
