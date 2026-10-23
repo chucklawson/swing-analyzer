@@ -19,6 +19,12 @@ interface DragState {
   currentY: number
 }
 
+interface DrawStart {
+  x: number
+  y: number
+  color: string
+}
+
 interface ZoomState {
   scale: number
   originX: number
@@ -34,13 +40,14 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [zoomMode, setZoomMode] = useState(false)
   const [drawMode, setDrawMode] = useState(false)
   const [drawColor, setDrawColor] = useState(PALETTE[0])
+  const [hasStartPoint, setHasStartPoint] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const linesRef = useRef<{ x1: number; y1: number; x2: number; y2: number; color: string }[]>([])
-  const drawStartRef = useRef<{ x: number; y: number } | null>(null)
+  const drawStartRef = useRef<DrawStart | null>(null)
 
   function redrawCanvas() {
     const canvas = canvasRef.current
@@ -51,6 +58,15 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     for (const l of linesRef.current) {
       strokeLine(ctx, l.x1, l.y1, l.x2, l.y2, l.color)
     }
+    const start = drawStartRef.current
+    if (start) {
+      const size = 10
+      ctx.fillStyle = start.color
+      ctx.fillRect(start.x - size / 2, start.y - size / 2, size, size)
+      ctx.strokeStyle = '#000000'
+      ctx.lineWidth = 1.5
+      ctx.strokeRect(start.x - size / 2, start.y - size / 2, size, size)
+    }
   }
 
   function strokeLine(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string) {
@@ -58,7 +74,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     ctx.moveTo(x1, y1)
     ctx.lineTo(x2, y2)
     ctx.strokeStyle = color
-    ctx.lineWidth = 2
+    ctx.lineWidth = 4
     ctx.lineCap = 'round'
     ctx.stroke()
   }
@@ -178,33 +194,47 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     setDrag(null)
   }
 
-  // --- Draw handlers ---
-  function handleDrawMouseDown(e: React.MouseEvent) {
+  // --- Draw handlers (two-click/two-tap: first sets start point, second draws line) ---
+  function handleCanvasClick(e: React.MouseEvent) {
+    if (!drawMode) return
     const { x, y } = getCoordsRelativeToContainer(e)
-    drawStartRef.current = { x, y }
+    if (!drawStartRef.current) {
+      drawStartRef.current = { x, y, color: drawColor }
+      setHasStartPoint(true)
+      redrawCanvas()
+    } else {
+      linesRef.current.push({ x1: drawStartRef.current.x, y1: drawStartRef.current.y, x2: x, y2: y, color: drawStartRef.current.color })
+      drawStartRef.current = null
+      setHasStartPoint(false)
+      redrawCanvas()
+    }
   }
 
-  function handleDrawMouseMove(e: React.MouseEvent) {
-    if (!drawStartRef.current) return
-    const { x, y } = getCoordsRelativeToContainer(e)
+  function handleCanvasTouchEnd(e: React.TouchEvent) {
+    if (!drawMode) return
+    e.preventDefault()
     const canvas = canvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    redrawCanvas()
-    strokeLine(ctx, drawStartRef.current.x, drawStartRef.current.y, x, y, drawColor)
-  }
-
-  function handleDrawMouseUp(e: React.MouseEvent) {
-    if (!drawStartRef.current) return
-    const { x, y } = getCoordsRelativeToContainer(e)
-    linesRef.current.push({ x1: drawStartRef.current.x, y1: drawStartRef.current.y, x2: x, y2: y, color: drawColor })
-    drawStartRef.current = null
-    redrawCanvas()
+    const rect = canvas.getBoundingClientRect()
+    const touch = e.changedTouches[0]
+    const x = touch.clientX - rect.left
+    const y = touch.clientY - rect.top
+    if (!drawStartRef.current) {
+      drawStartRef.current = { x, y, color: drawColor }
+      setHasStartPoint(true)
+      redrawCanvas()
+    } else {
+      linesRef.current.push({ x1: drawStartRef.current.x, y1: drawStartRef.current.y, x2: x, y2: y, color: drawStartRef.current.color })
+      drawStartRef.current = null
+      setHasStartPoint(false)
+      redrawCanvas()
+    }
   }
 
   function clearCanvas() {
     linesRef.current = []
+    drawStartRef.current = null
+    setHasStartPoint(false)
     const canvas = canvasRef.current
     if (!canvas) return
     canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
@@ -256,11 +286,16 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                 ref={canvasRef}
                 className="absolute inset-0 rounded-xl"
                 style={{ pointerEvents: drawMode ? 'auto' : 'none', cursor: drawMode ? 'crosshair' : 'default' }}
-                onMouseDown={handleDrawMouseDown}
-                onMouseMove={handleDrawMouseMove}
-                onMouseUp={handleDrawMouseUp}
-                onMouseLeave={() => { drawStartRef.current = null }}
+                onClick={handleCanvasClick}
+                onTouchEnd={handleCanvasTouchEnd}
               />
+
+              {/* Draw mode prompt */}
+              {drawMode && (
+                <div className="absolute bottom-3 left-3 bg-black/75 text-white text-sm font-medium px-4 py-1.5 rounded-full pointer-events-none z-10 select-none">
+                  {hasStartPoint ? 'Select ending point' : 'Select starting point'}
+                </div>
+              )}
 
               {/* Zoom selection overlay */}
               {zoomMode && !zoom && (
@@ -355,7 +390,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
               </button>
             )}
             <button
-              onClick={() => { setDrawMode(m => !m); setZoomMode(false) }}
+              onClick={() => {
+                setDrawMode(m => {
+                  if (m) { drawStartRef.current = null; setHasStartPoint(false) }
+                  return !m
+                })
+                setZoomMode(false)
+              }}
               className={`px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors ${drawMode ? 'bg-sky-600 hover:bg-sky-500' : 'bg-gray-800 hover:bg-gray-700'}`}
             >
               ✏️ Draw
