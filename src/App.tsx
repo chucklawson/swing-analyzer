@@ -42,6 +42,18 @@ interface PoseAngles {
   shoulders: number; hips: number; spine: number
 }
 
+function extendLineToEdges(
+  x1: number, y1: number,
+  x2: number, y2: number,
+  w: number, h: number
+): [number, number, number, number] {
+  const dx = x2 - x1, dy = y2 - y1
+  if (Math.abs(dx) < 0.5) return [x1, 0, x1, h]
+  const yAtLeft  = y1 + (0   - x1) / dx * dy
+  const yAtRight = y1 + (w   - x1) / dx * dy
+  return [0, yAtLeft, w, yAtRight]
+}
+
 function computePoseAngles(lm: { x: number; y: number }[]): PoseAngles {
   const hipMid = { x: (lm[23].x + lm[24].x) / 2, y: (lm[23].y + lm[24].y) / 2 }
   const shoulderMid = { x: (lm[11].x + lm[12].x) / 2, y: (lm[11].y + lm[12].y) / 2 }
@@ -171,6 +183,33 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
         ctx.fill()
       }
 
+      // Reference lines: shoulder extended, hip between joints, spine extended
+      const shoulderMidX = (pose[11].x + pose[12].x) / 2 * w
+      const shoulderMidY = (pose[11].y + pose[12].y) / 2 * h
+      const hipMidX      = (pose[23].x + pose[24].x) / 2 * w
+      const hipMidY      = (pose[23].y + pose[24].y) / 2 * h
+      const [sx1, sy1, sx2, sy2] = extendLineToEdges(
+        pose[11].x * w, pose[11].y * h,
+        pose[12].x * w, pose[12].y * h, w, h
+      )
+      const [spx1, spy1, spx2, spy2] = extendLineToEdges(
+        hipMidX, hipMidY, shoulderMidX, shoulderMidY, w, h
+      )
+      ctx.save()
+      ctx.setLineDash([10, 5])
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'
+      ctx.lineWidth = 1.5
+      // Shoulder line — extended to canvas edges
+      ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke()
+      // Hip line — just between the two hip joints
+      ctx.beginPath(); ctx.moveTo(pose[23].x * w, pose[23].y * h); ctx.lineTo(pose[24].x * w, pose[24].y * h); ctx.stroke()
+      // Spine line — extended, thicker, cyan
+      ctx.lineWidth = 3
+      ctx.strokeStyle = 'rgba(100, 210, 255, 0.8)'
+      ctx.beginPath(); ctx.moveTo(spx1, spy1); ctx.lineTo(spx2, spy2); ctx.stroke()
+      ctx.setLineDash([])
+      ctx.restore()
+
       // Joint angle labels + corner stats — outlined text, no background box
       const angles = computePoseAngles(pose)
 
@@ -192,6 +231,69 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       ]
       for (const { angle, lm, ox, oy } of jointLabels) {
         drawOutlinedText(`${angle}°`, lm.x * w + ox, lm.y * h + oy, '#ffff00')
+      }
+
+      // Spine-to-shoulder angle dimension annotation
+      {
+        // Angle of shoulder line (left→right) and spine line (hip→shoulder midpoint)
+        const shoulderDirA = Math.atan2(
+          pose[12].y * h - pose[11].y * h,
+          pose[12].x * w - pose[11].x * w
+        )
+        const spineDirA = Math.atan2(shoulderMidY - hipMidY, shoulderMidX - hipMidX)
+        // Signed sweep from shoulder→spine, normalized to [-PI, PI]
+        let sweep = spineDirA - shoulderDirA
+        while (sweep >  Math.PI) sweep -= 2 * Math.PI
+        while (sweep < -Math.PI) sweep += 2 * Math.PI
+        // Keep the acute sector
+        if (Math.abs(sweep) > Math.PI / 2) sweep = sweep > 0 ? sweep - Math.PI : sweep + Math.PI
+        const dimAngleDeg = Math.round(Math.abs(sweep) * 180 / Math.PI)
+
+        // Pick the bisector (from all 4 sectors) that points most toward upper-left.
+        // cos(a)+sin(a) is most negative at -135° (upper-left in canvas coords).
+        const b0 = shoulderDirA + sweep / 2
+        const allB = [b0, b0 + Math.PI, b0 + Math.PI / 2, b0 - Math.PI / 2]
+        const bisector = allB.reduce((best, a) =>
+          (Math.cos(a) + Math.sin(a)) < (Math.cos(best) + Math.sin(best)) ? a : best
+        )
+        const halfSweep = Math.abs(sweep) / 2
+        const startA = bisector - halfSweep
+        const endA   = bisector + halfSweep
+
+        const arcR = 42
+        ctx.save()
+        ctx.strokeStyle = 'rgba(100, 210, 255, 0.9)'
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.arc(shoulderMidX, shoulderMidY, arcR, startA, endA)
+        ctx.stroke()
+        // Tick marks perpendicular to each arc endpoint
+        const tickLen = 7
+        for (const a of [startA, endA]) {
+          const nx = Math.cos(a + Math.PI / 2), ny = Math.sin(a + Math.PI / 2)
+          const px = shoulderMidX + Math.cos(a) * arcR
+          const py = shoulderMidY + Math.sin(a) * arcR
+          ctx.beginPath()
+          ctx.moveTo(px - nx * tickLen / 2, py - ny * tickLen / 2)
+          ctx.lineTo(px + nx * tickLen / 2, py + ny * tickLen / 2)
+          ctx.stroke()
+        }
+        ctx.restore()
+
+        const labelR = arcR + 28
+        ctx.save()
+        ctx.font = 'bold 22px monospace'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        drawOutlinedText(
+          `${dimAngleDeg}°`,
+          shoulderMidX + Math.cos(bisector) * labelR,
+          shoulderMidY + Math.sin(bisector) * labelR,
+          '#64d2ff'
+        )
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'alphabetic'
+        ctx.restore()
       }
 
       // Body stats anchored to the torso so they move with the person
@@ -785,20 +887,31 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           {/* Pose */}
           <section>
             <h3 className="text-base font-semibold text-white mb-2">🦴 Pose Analysis</h3>
-            <p className="mb-1.5">Uses AI to detect the person's body and overlay a skeleton with real-time angle measurements.</p>
+            <p className="mb-1.5">Uses AI to detect the person's body and overlay a skeleton with real-time angle measurements and reference lines.</p>
             <ol className="list-decimal list-inside flex flex-col gap-1.5">
               <li>Pause the video on a frame where the person is clearly visible.</li>
               <li>Tap <span className="font-medium text-gray-100">🦴 Pose</span>. The first time you use it, the AI model downloads (~8 MB) which takes a few seconds. After that it's instant.</li>
               <li>A <span className="text-green-400 font-medium">green skeleton</span> appears with <span className="text-yellow-400 font-medium">yellow angle labels</span> at each elbow and knee.</li>
-              <li>Hit Play — the skeleton tracks the person as the video plays. Works best at slow motion speeds.</li>
+              <li>Hit Play — the skeleton and all overlays track the person as the video plays. Works best at slow motion speeds.</li>
             </ol>
-            <div className="mt-2 bg-gray-800 rounded-lg p-3 flex flex-col gap-1">
-              <p className="font-medium text-gray-100 mb-1">Body angles (green, right side of frame, 1/3 down):</p>
-              <p><span className="text-green-400 font-medium">Shldr</span> — tilt of the shoulder line. 0° = level. Negative = left shoulder higher.</p>
-              <p><span className="text-green-400 font-medium">Hips</span> — tilt of the hip line. Same scale as shoulders.</p>
-              <p><span className="text-green-400 font-medium">Spine</span> — lateral lean from vertical. 0° = upright.</p>
+            <div className="mt-2 bg-gray-800 rounded-lg p-3 flex flex-col gap-1.5">
+              <p className="font-medium text-gray-100 mb-1">Body angle readouts (green, right side of frame):</p>
+              <p><span className="text-green-400 font-medium">Shldr</span> — tilt of the shoulder line from horizontal. 0° = level.</p>
+              <p><span className="text-green-400 font-medium">Hips</span> — tilt of the hip line from horizontal. 0° = level.</p>
+              <p><span className="text-green-400 font-medium">Spine</span> — lateral lean of the spine from vertical. 0° = upright.</p>
             </div>
-            <p className="mt-2">Tap <span className="font-medium text-gray-100">Clear Pose</span> to remove the skeleton.</p>
+            <div className="mt-2 bg-gray-800 rounded-lg p-3 flex flex-col gap-1.5">
+              <p className="font-medium text-gray-100 mb-1">Reference lines (update every frame):</p>
+              <p><span className="text-gray-100 font-medium">Shoulder line</span> — white dashed line extended to both edges of the frame through the two shoulder joints.</p>
+              <p><span className="text-gray-100 font-medium">Hip line</span> — white dashed line drawn between the two hip joints.</p>
+              <p><span className="text-cyan-400 font-medium">Spine line</span> — cyan line extended to both edges of the frame through the midpoint of the hips and midpoint of the shoulders. This is the same axis used to compute the Spine angle readout.</p>
+            </div>
+            <div className="mt-2 bg-gray-800 rounded-lg p-3">
+              <p className="font-medium text-gray-100 mb-1">Spine–Shoulder dimension <span className="text-cyan-400">(cyan arc + °label)</span></p>
+              <p>The angle between the spine line and the shoulder line is measured and displayed as a dimension annotation — an arc with tick marks, positioned in the upper-left area of their intersection. This value updates live as the body rotates through the swing.</p>
+              <p className="mt-1.5 text-cyan-300 font-medium">Target: 90°. A value of 90° means the spine is perfectly perpendicular to the shoulders, which is the correct address and impact position in the golf swing. Deviation from 90° indicates sway, tilt, or loss of spine angle.</p>
+            </div>
+            <p className="mt-2">Tap <span className="font-medium text-gray-100">Clear Pose</span> to remove the skeleton and all overlays.</p>
           </section>
 
           {/* 3D View */}
@@ -826,9 +939,10 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <ul className="flex flex-col gap-1.5">
               <li>Load the front view in Video 1 and the side view in Video 2 — this gives the most accurate 3D skeleton.</li>
               <li>Use <span className="font-medium text-gray-100">Sync Controls</span> to step both views frame by frame in perfect sync.</li>
-              <li>Draw lines first to mark key reference angles, then run Pose for the measurements.</li>
+              <li>The <span className="text-cyan-400 font-medium">spine–shoulder angle</span> is one of the most important numbers in the golf swing. Watch it at address, top of backswing, and impact — it should stay close to 90° throughout.</li>
               <li>Slow the speed to 2–5 fps before hitting Play with Pose active for the smoothest skeleton tracking.</li>
               <li>The 3D view updates live while the videos play — set both to the same slow motion speed for the best result.</li>
+              <li>Draw lines to mark additional reference angles like swing plane or club path, alongside the automatic Pose overlays.</li>
             </ul>
           </section>
 
