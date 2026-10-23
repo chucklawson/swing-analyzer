@@ -2,7 +2,12 @@ import { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 're
 
 const FRAME_RATE = 30
 
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+
 const PALETTE = ['#ffffff', '#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#a855f7']
+
+const FPS_PRESETS = [30, 15, 10, 5, 2, 1]
 
 interface VideoPlayerHandle {
   play: () => void
@@ -10,6 +15,7 @@ interface VideoPlayerHandle {
   stepFrame: (direction: 1 | -1) => void
   isPaused: () => boolean
   reset: () => void
+  setFPS: (fps: number) => void
 }
 
 interface DragState {
@@ -41,6 +47,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [drawMode, setDrawMode] = useState(false)
   const [drawColor, setDrawColor] = useState(PALETTE[0])
   const [hasStartPoint, setHasStartPoint] = useState(false)
+  const [playbackFPS, setPlaybackFPS] = useState(FRAME_RATE)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -48,6 +55,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const containerRef = useRef<HTMLDivElement>(null)
   const linesRef = useRef<{ x1: number; y1: number; x2: number; y2: number; color: string }[]>([])
   const drawStartRef = useRef<DrawStart | null>(null)
+  const zoomModeRef = useRef(zoomMode)
+  const currentZoomRef = useRef(zoom)
+  const pinchRef = useRef<{ startDist: number; startScale: number; originX: number; originY: number } | null>(null)
 
   function redrawCanvas() {
     const canvas = canvasRef.current
@@ -79,6 +89,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     ctx.stroke()
   }
 
+  useEffect(() => { zoomModeRef.current = zoomMode }, [zoomMode])
+  useEffect(() => { currentZoomRef.current = zoom }, [zoom])
+  useEffect(() => {
+    const video = videoRef.current
+    if (video) video.playbackRate = playbackFPS / FRAME_RATE
+  }, [playbackFPS])
+
   useEffect(() => {
     if (!videoUrl) return
     const container = containerRef.current
@@ -93,7 +110,48 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     observer.observe(container)
     canvas.width = container.offsetWidth
     canvas.height = container.offsetHeight
-    return () => observer.disconnect()
+
+    if (!isIOS) return () => observer.disconnect()
+
+    function getTouchDist(t: TouchList) {
+      return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+    }
+
+    function onPinchStart(e: TouchEvent) {
+      if (!zoomModeRef.current || e.touches.length !== 2) return
+      e.preventDefault()
+      const rect = container.getBoundingClientRect()
+      pinchRef.current = {
+        startDist: getTouchDist(e.touches),
+        startScale: currentZoomRef.current?.scale ?? 1,
+        originX: (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left,
+        originY: (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top,
+      }
+    }
+
+    function onPinchMove(e: TouchEvent) {
+      if (!pinchRef.current || e.touches.length !== 2) return
+      e.preventDefault()
+      const scale = Math.max(1.2, Math.min(10,
+        pinchRef.current.startScale * getTouchDist(e.touches) / pinchRef.current.startDist
+      ))
+      setZoom({ scale, originX: pinchRef.current.originX, originY: pinchRef.current.originY })
+    }
+
+    function onPinchEnd() {
+      if (pinchRef.current) { setZoomMode(false); pinchRef.current = null }
+    }
+
+    container.addEventListener('touchstart', onPinchStart, { passive: false })
+    container.addEventListener('touchmove', onPinchMove, { passive: false })
+    container.addEventListener('touchend', onPinchEnd)
+
+    return () => {
+      observer.disconnect()
+      container.removeEventListener('touchstart', onPinchStart)
+      container.removeEventListener('touchmove', onPinchMove)
+      container.removeEventListener('touchend', onPinchEnd)
+    }
   }, [videoUrl])
 
   function stepFrame(direction: 1 | -1) {
@@ -115,6 +173,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   function play() {
     const video = videoRef.current
     if (!video) return
+    video.playbackRate = playbackFPS / FRAME_RATE
     video.play()
     setIsPaused(false)
   }
@@ -132,6 +191,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     stepFrame,
     isPaused: () => videoRef.current?.paused ?? true,
     reset,
+    setFPS: (fps: number) => setPlaybackFPS(fps),
   }))
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -297,8 +357,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                 </div>
               )}
 
-              {/* Zoom selection overlay */}
-              {zoomMode && !zoom && (
+              {/* Zoom selection overlay — desktop rubber-band only, iOS uses pinch */}
+              {zoomMode && !zoom && !isIOS && (
                 <div
                   className="absolute inset-0 cursor-crosshair"
                   style={{ pointerEvents: drawMode ? 'none' : 'auto' }}
@@ -309,7 +369,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                 />
               )}
 
-              {drag && (
+              {drag && !isIOS && (
                 <div
                   className="absolute pointer-events-none border-2 border-white border-dashed"
                   style={{
@@ -403,6 +463,21 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
             </button>
           </div>
 
+          <div className="flex items-center gap-1 flex-wrap justify-center">
+            <span className="text-xs text-gray-500 mr-1">Speed:</span>
+            {FPS_PRESETS.map(fps => (
+              <button
+                key={fps}
+                onClick={() => setPlaybackFPS(fps)}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  playbackFPS === fps ? 'bg-sky-600 text-white' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                }`}
+              >
+                {fps}fps
+              </button>
+            ))}
+          </div>
+
           <p className="text-sm text-gray-400 truncate max-w-full px-2">{videoName}</p>
         </>
       ) : (
@@ -473,6 +548,18 @@ function App() {
           >
             Frame ▶
           </button>
+        </div>
+        <div className="flex items-center gap-1 flex-wrap justify-center">
+          <span className="text-xs text-gray-500 mr-1">Both Speed:</span>
+          {FPS_PRESETS.map(fps => (
+            <button
+              key={fps}
+              onClick={() => { player1.current?.setFPS(fps); player2.current?.setFPS(fps) }}
+              className="px-2 py-1 rounded text-xs font-medium bg-gray-800 hover:bg-emerald-700 text-gray-300 transition-colors"
+            >
+              {fps}fps
+            </button>
+          ))}
         </div>
       </div>
     </div>
