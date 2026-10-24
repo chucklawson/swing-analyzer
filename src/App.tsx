@@ -1,4 +1,5 @@
 import { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ThreeDView } from './ThreeDView'
 
 const FRAME_RATE = 30
@@ -969,6 +970,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 }
 
 function App() {
+  const navigate = useNavigate()
   const player1 = useRef<VideoPlayerHandle>(null)
   const player2 = useRef<VideoPlayerHandle>(null)
   const [syncPaused, setSyncPaused] = useState(true)
@@ -998,6 +1000,13 @@ function App() {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 
       <div className="flex items-center gap-3">
+        <button
+          onClick={() => navigate('/')}
+          className="w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 text-white transition-colors flex items-center justify-center"
+          title="Home"
+        >
+          ⌂
+        </button>
         <h1 className="text-3xl font-semibold tracking-tight">Swing Analyzer</h1>
         <button
           onClick={() => setShowHelp(true)}
