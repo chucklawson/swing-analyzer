@@ -183,7 +183,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
         ctx.fill()
       }
 
-      // Reference lines: shoulder extended, hip between joints, spine extended
+      // Reference lines: shoulder, hip, and spine all extended to canvas edges
       const shoulderMidX = (pose[11].x + pose[12].x) / 2 * w
       const shoulderMidY = (pose[11].y + pose[12].y) / 2 * h
       const hipMidX      = (pose[23].x + pose[24].x) / 2 * w
@@ -191,6 +191,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       const [sx1, sy1, sx2, sy2] = extendLineToEdges(
         pose[11].x * w, pose[11].y * h,
         pose[12].x * w, pose[12].y * h, w, h
+      )
+      const [hx1, hy1, hx2, hy2] = extendLineToEdges(
+        pose[23].x * w, pose[23].y * h,
+        pose[24].x * w, pose[24].y * h, w, h
       )
       const [spx1, spy1, spx2, spy2] = extendLineToEdges(
         hipMidX, hipMidY, shoulderMidX, shoulderMidY, w, h
@@ -201,8 +205,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       ctx.lineWidth = 1.5
       // Shoulder line — extended to canvas edges
       ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke()
-      // Hip line — just between the two hip joints
-      ctx.beginPath(); ctx.moveTo(pose[23].x * w, pose[23].y * h); ctx.lineTo(pose[24].x * w, pose[24].y * h); ctx.stroke()
+      // Hip line — extended to canvas edges
+      ctx.beginPath(); ctx.moveTo(hx1, hy1); ctx.lineTo(hx2, hy2); ctx.stroke()
       // Spine line — extended, thicker, cyan
       ctx.lineWidth = 3
       ctx.strokeStyle = 'rgba(100, 210, 255, 0.8)'
