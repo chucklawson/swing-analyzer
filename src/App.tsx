@@ -246,21 +246,27 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
         )
         const spineDirA = Math.atan2(shoulderMidY - hipMidY, shoulderMidX - hipMidX)
         // Signed sweep from shoulder→spine, normalized to [-PI, PI]
-        let sweep = spineDirA - shoulderDirA
-        while (sweep >  Math.PI) sweep -= 2 * Math.PI
-        while (sweep < -Math.PI) sweep += 2 * Math.PI
-        // Keep the acute sector
-        if (Math.abs(sweep) > Math.PI / 2) sweep = sweep > 0 ? sweep - Math.PI : sweep + Math.PI
-        const dimAngleDeg = Math.round(Math.abs(sweep) * 180 / Math.PI)
+        let rawSweep = spineDirA - shoulderDirA
+        while (rawSweep >  Math.PI) rawSweep -= 2 * Math.PI
+        while (rawSweep < -Math.PI) rawSweep += 2 * Math.PI
 
-        // Pick the bisector (from all 4 sectors) that points most toward upper-left.
+        // Pick the bisector (from all 4 sectors) pointing most toward upper-left.
         // cos(a)+sin(a) is most negative at -135° (upper-left in canvas coords).
-        const b0 = shoulderDirA + sweep / 2
+        const b0 = shoulderDirA + rawSweep / 2
         const allB = [b0, b0 + Math.PI, b0 + Math.PI / 2, b0 - Math.PI / 2]
         const bisector = allB.reduce((best, a) =>
           (Math.cos(a) + Math.sin(a)) < (Math.cos(best) + Math.sin(best)) ? a : best
         )
-        const halfSweep = Math.abs(sweep) / 2
+
+        // Compute the angle of the sector at the chosen bisector.
+        // b0 and b0+PI span |rawSweep|; b0±PI/2 span PI-|rawSweep|.
+        const diffRaw = ((bisector - b0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)
+        const bisectorDiff = diffRaw > Math.PI ? 2 * Math.PI - diffRaw : diffRaw
+        const sectorAngle = (bisectorDiff < Math.PI / 4 || bisectorDiff > 3 * Math.PI / 4)
+          ? Math.abs(rawSweep)
+          : Math.PI - Math.abs(rawSweep)
+        const dimAngleDeg = Math.round(sectorAngle * 180 / Math.PI)
+        const halfSweep = sectorAngle / 2
         const startA = bisector - halfSweep
         const endA   = bisector + halfSweep
 
