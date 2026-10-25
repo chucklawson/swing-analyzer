@@ -638,10 +638,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                 src={videoUrl}
                 className="w-full block shadow-2xl bg-black"
                 playsInline
+                preload="metadata"
                 style={zoom ? {
                   transform: `scale(${zoom.scale})`,
                   transformOrigin: `${zoom.originX}px ${zoom.originY}px`,
                 } : undefined}
+                onLoadedMetadata={() => { if (videoRef.current) videoRef.current.currentTime = 0.001 }}
                 onPlay={() => setIsPaused(false)}
                 onPause={() => setIsPaused(true)}
               />
