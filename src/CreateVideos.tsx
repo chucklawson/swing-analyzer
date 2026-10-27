@@ -50,6 +50,7 @@ export default function CreateVideos() {
   const navigate = useNavigate()
 
   const videoRef          = useRef<HTMLVideoElement>(null)
+  const reviewRef         = useRef<HTMLVideoElement>(null)
   const streamRef         = useRef<MediaStream | null>(null)
   const audioCtxRef       = useRef<AudioContext | null>(null)
   const analyserRef       = useRef<AnalyserNode | null>(null)
@@ -286,8 +287,8 @@ export default function CreateVideos() {
   }
 
   function showReview(blob: Blob) {
-    const vid = videoRef.current
-    if (!vid) {
+    const rev = reviewRef.current
+    if (!rev) {
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder(); return
     }
 
@@ -298,33 +299,25 @@ export default function CreateVideos() {
       if (done) return
       done = true
       if (reviewTimeoutRef.current) { clearTimeout(reviewTimeoutRef.current); reviewTimeoutRef.current = null }
-      vid.onended   = null
-      vid.oncanplay = null
-      vid.autoplay  = false
-      if (!vid.paused) vid.pause()
-      vid.src = ''
+      rev.onended   = null
+      rev.oncanplay = null
+      rev.autoplay  = false
+      if (!rev.paused) rev.pause()
+      rev.src = ''
       URL.revokeObjectURL(url)
-      // Restore live feed on the same element
-      if (streamRef.current) {
-        vid.srcObject = streamRef.current
-        vid.play().catch(() => {})
-      }
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder()
     }
 
     setStatus('reviewing')
-    vid.autoplay = true    // tell browser to play as soon as ready (most reliable on iOS)
-    vid.srcObject = null   // detach live stream
-    vid.src = url
-    vid.load()
-    vid.onended = finish
+    rev.autoplay = true
+    rev.src = url
+    rev.load()
+    rev.onended = finish
     reviewTimeoutRef.current = setTimeout(finish, PRE_ROLL_MS + POST_ROLL_MS + 5000)
 
-    // Belt-and-suspenders: also call play() explicitly when canplay fires.
-    // If play() rejects (browser policy), autoplay may still work; timeout recovers otherwise.
-    vid.oncanplay = () => {
-      vid.oncanplay = null
-      vid.play().catch(() => { /* rely on autoplay or timeout */ })
+    rev.oncanplay = () => {
+      rev.oncanplay = null
+      rev.play().catch(() => { /* timeout recovers if play is blocked */ })
     }
   }
 
@@ -365,6 +358,13 @@ export default function CreateVideos() {
         <video
           ref={videoRef}
           className="absolute inset-0 w-full h-full object-cover"
+          style={{ zIndex: status === 'reviewing' ? 0 : 1 }}
+          playsInline muted
+        />
+        <video
+          ref={reviewRef}
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ zIndex: status === 'reviewing' ? 1 : 0 }}
           playsInline muted
         />
 
