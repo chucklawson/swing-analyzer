@@ -305,8 +305,13 @@ export default function CreateVideos() {
       if (!rev.paused) rev.pause()
       rev.src = ''
       URL.revokeObjectURL(url)
+      // Restore live feed
+      if (videoRef.current) videoRef.current.style.visibility = ''
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder()
     }
+
+    // Hide live feed so the (initially transparent) review element doesn't show through
+    if (videoRef.current) videoRef.current.style.visibility = 'hidden'
 
     setStatus('reviewing')
     rev.autoplay = true
@@ -368,42 +373,46 @@ export default function CreateVideos() {
           playsInline muted
         />
 
-        {!active && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/70">
-            <p className="text-gray-500">Camera off</p>
-          </div>
-        )}
-        {status === 'recording' && (
-          <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-white text-sm font-medium">Recording</span>
-          </div>
-        )}
-        {status === 'listening' && (
-          <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
-            <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
-            <span className="text-white text-sm font-medium">Listening</span>
-          </div>
-        )}
-        {status === 'reviewing' && (
-          <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
-            <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
-            <span className="text-white text-sm font-medium">Review</span>
-          </div>
-        )}
-        {status === 'listening' && (
-          <button
-            onClick={flipCamera}
-            className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors cursor-pointer"
-            title={facing === 'environment' ? 'Switch to front camera' : 'Switch to back camera'}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-              <path d="M16 3l-4 4-4-4"/>
-              <circle cx="12" cy="13" r="3"/>
-            </svg>
-          </button>
-        )}
+        {/* overlay layer — must sit above both video elements */}
+        <div className="absolute inset-0" style={{ zIndex: 2, pointerEvents: 'none' }}>
+          {!active && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/70" style={{ pointerEvents: 'auto' }}>
+              <p className="text-gray-500">Camera off</p>
+            </div>
+          )}
+          {status === 'recording' && (
+            <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-white text-sm font-medium">Recording</span>
+            </div>
+          )}
+          {status === 'listening' && (
+            <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
+              <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+              <span className="text-white text-sm font-medium">Listening</span>
+            </div>
+          )}
+          {status === 'reviewing' && (
+            <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
+              <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
+              <span className="text-white text-sm font-medium">Review</span>
+            </div>
+          )}
+          {status === 'listening' && (
+            <button
+              onClick={flipCamera}
+              className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors cursor-pointer"
+              style={{ pointerEvents: 'auto' }}
+              title={facing === 'environment' ? 'Switch to front camera' : 'Switch to back camera'}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <path d="M16 3l-4 4-4-4"/>
+                <circle cx="12" cy="13" r="3"/>
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
