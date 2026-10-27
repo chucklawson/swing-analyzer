@@ -28,7 +28,12 @@ function makeFilename(ext: string) {
 }
 
 function pickMime() {
-  for (const t of ['video/webm;codecs=vp9', 'video/webm', 'video/mp4']) {
+  for (const t of [
+    'video/webm;codecs=vp9',
+    'video/webm',
+    'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+    'video/mp4',
+  ]) {
     if (MediaRecorder.isTypeSupported(t)) return t
   }
   return ''
@@ -42,6 +47,21 @@ async function webmPureInit(initBlob: Blob): Promise<ArrayBuffer> {
     if (buf[i] === 0x1F && buf[i+1] === 0x43 && buf[i+2] === 0xB6 && buf[i+3] === 0x75) {
       return buf.buffer.slice(0, i)
     }
+  }
+  return buf.buffer
+}
+
+// Strip any moof+mdat from the MP4 init blob — keep only ftyp+moov so the
+// assembled clip starts cleanly at the pre-roll chunks (no t=0 gap).
+async function mp4PureInit(initBlob: Blob): Promise<ArrayBuffer> {
+  const buf = new Uint8Array(await initBlob.arrayBuffer())
+  let i = 0
+  while (i + 8 <= buf.length) {
+    const size = ((buf[i] << 24) | (buf[i+1] << 16) | (buf[i+2] << 8) | buf[i+3]) >>> 0
+    const type = String.fromCharCode(buf[i+4], buf[i+5], buf[i+6], buf[i+7])
+    if (type === 'moof') return buf.buffer.slice(0, i)
+    if (size < 8) break
+    i += size
   }
   return buf.buffer
 }
@@ -203,6 +223,8 @@ export default function CreateVideos() {
     if (!streamRef.current) return
     const mime = mimeRef.current
     const rec  = new MediaRecorder(streamRef.current, mime ? { mimeType: mime } : undefined)
+    // Read back the actual mimeType the browser chose (may differ from what we requested)
+    if (rec.mimeType) mimeRef.current = rec.mimeType
     rollingRecRef.current   = rec
     rollingInitRef.current  = null
     rollingChunksRef.current = []
@@ -264,12 +286,13 @@ export default function CreateVideos() {
 
       if (!streamRef.current) { cooldownRef.current = false; return }
 
-      setClipInfo(`init:${init ? '✓' : '✗'} chunks:${clipChunks.length}`)
+      const mime = mimeRef.current || (isIOS ? 'video/mp4' : 'video/webm')
+      setClipInfo(`init:${init ? '✓' : '✗'} chunks:${clipChunks.length} ${mime}`)
 
       if (init && clipChunks.length > 0) {
-        const mime = mimeRef.current || 'video/webm'
-        const ext  = mime.includes('mp4') ? 'mp4' : 'webm'
-        ;(mime.startsWith('video/webm') ? webmPureInit(init) : init.arrayBuffer()).then(initData => {
+        const ext = mime.includes('mp4') ? 'mp4' : 'webm'
+        const processInit = mime.startsWith('video/webm') ? webmPureInit : mp4PureInit
+        processInit(init).then(initData => {
           const blob = new Blob([initData, ...clipChunks.map(c => c.data)], { type: mime })
           saveClip(blob, makeFilename(ext))
           showReview(blob)
