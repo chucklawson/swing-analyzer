@@ -41,7 +41,6 @@ interface PoseAngles {
   lElbow: number; rElbow: number
   lKnee: number;  rKnee: number
   shoulders: number; hips: number; spine: number
-  clubForearm: number
 }
 
 function extendLineToEdges(
@@ -59,18 +58,14 @@ function extendLineToEdges(
 function computePoseAngles(lm: { x: number; y: number }[]): PoseAngles {
   const hipMid = { x: (lm[23].x + lm[24].x) / 2, y: (lm[23].y + lm[24].y) / 2 }
   const shoulderMid = { x: (lm[11].x + lm[12].x) / 2, y: (lm[11].y + lm[12].y) / 2 }
-  // Club direction approximated by the vector from left wrist toward the midpoint of
-  // left index (19) and left pinky (17) knuckles — the knuckle line runs along the grip
-  const handMid = { x: (lm[17].x + lm[19].x) / 2, y: (lm[17].y + lm[19].y) / 2 }
   return {
-    lElbow:     calcAngle(lm[11], lm[13], lm[15]),
-    rElbow:     calcAngle(lm[12], lm[14], lm[16]),
-    lKnee:      calcAngle(lm[23], lm[25], lm[27]),
-    rKnee:      calcAngle(lm[24], lm[26], lm[28]),
-    shoulders:  lineAngleDeg(lm[11], lm[12]),
-    hips:       lineAngleDeg(lm[23], lm[24]),
-    spine:      Math.round(Math.atan2(shoulderMid.x - hipMid.x, hipMid.y - shoulderMid.y) * 180 / Math.PI),
-    clubForearm: calcAngle(lm[13], lm[15], handMid),
+    lElbow:    calcAngle(lm[11], lm[13], lm[15]),
+    rElbow:    calcAngle(lm[12], lm[14], lm[16]),
+    lKnee:     calcAngle(lm[23], lm[25], lm[27]),
+    rKnee:     calcAngle(lm[24], lm[26], lm[28]),
+    shoulders: lineAngleDeg(lm[11], lm[12]),
+    hips:      lineAngleDeg(lm[23], lm[24]),
+    spine:     Math.round(Math.atan2(shoulderMid.x - hipMid.x, hipMid.y - shoulderMid.y) * 180 / Math.PI),
   }
 }
 
@@ -242,58 +237,6 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       for (const { angle, lm, ox, oy } of jointLabels) {
         drawOutlinedText(`${angle}°`, lm.x * w + ox, lm.y * h + oy, '#ffff00')
       }
-      // Club–forearm angle annotation arc (orange), centered at left wrist
-      {
-        const wx = pose[15].x * w, wy = pose[15].y * h
-        const handMidX = (pose[17].x + pose[19].x) / 2 * w
-        const handMidY = (pose[17].y + pose[19].y) / 2 * h
-        // Ray 1: wrist → elbow (forearm direction)
-        const forearmDir = Math.atan2(pose[13].y * h - wy, pose[13].x * w - wx)
-        // Ray 2: wrist → hand knuckle midpoint (club direction)
-        const clubDir = Math.atan2(handMidY - wy, handMidX - wx)
-        let cfSweep = clubDir - forearmDir
-        while (cfSweep >  Math.PI) cfSweep -= 2 * Math.PI
-        while (cfSweep < -Math.PI) cfSweep += 2 * Math.PI
-        const cfBisector = forearmDir + cfSweep / 2
-        const cfHalf = Math.abs(cfSweep) / 2
-        const startA = cfBisector - cfHalf
-        const endA   = cfBisector + cfHalf
-
-        const arcR = 75
-        const tickLen = 7
-        ctx.save()
-        ctx.strokeStyle = 'rgba(249, 115, 22, 0.9)'
-        ctx.lineWidth = 1.5
-        ctx.beginPath()
-        ctx.arc(wx, wy, arcR, startA, endA)
-        ctx.stroke()
-        for (const a of [startA, endA]) {
-          const nx = Math.cos(a + Math.PI / 2), ny = Math.sin(a + Math.PI / 2)
-          const px = wx + Math.cos(a) * arcR
-          const py = wy + Math.sin(a) * arcR
-          ctx.beginPath()
-          ctx.moveTo(px - nx * tickLen / 2, py - ny * tickLen / 2)
-          ctx.lineTo(px + nx * tickLen / 2, py + ny * tickLen / 2)
-          ctx.stroke()
-        }
-        ctx.restore()
-
-        const labelR = arcR + 28
-        ctx.save()
-        ctx.font = 'bold 22px monospace'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        drawOutlinedText(
-          `${angles.clubForearm}°`,
-          wx + Math.cos(cfBisector) * labelR,
-          wy + Math.sin(cfBisector) * labelR,
-          '#f97316'
-        )
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'alphabetic'
-        ctx.restore()
-      }
-
       // Spine-to-shoulder angle dimension annotation
       {
         // Angle of shoulder line (left→right) and spine line (hip→shoulder midpoint)
