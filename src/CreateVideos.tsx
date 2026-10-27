@@ -5,6 +5,14 @@ const POST_ROLL_MS = 3000   // record this long after impact
 const CHUNK_MS     = 100    // timeslice + requestData interval
 
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+const iosBrowser: 'chrome' | 'firefox' | 'edge' | 'safari' = (() => {
+  if (!isIOS) return 'safari'
+  const ua = navigator.userAgent
+  if (/CriOS/.test(ua))  return 'chrome'
+  if (/FxiOS/.test(ua))  return 'firefox'
+  if (/EdgiOS/.test(ua)) return 'edge'
+  return 'safari'
+})()
 
 function makeFilename(ext: string) {
   const d = new Date()
@@ -36,10 +44,12 @@ export default function CreateVideos() {
   const cooldownRef     = useRef(false)
   const thresholdRef    = useRef(30)
   const mimeRef         = useRef('')
+  const facingRef       = useRef<'environment' | 'user'>('environment')
 
   const [status,     setStatus]     = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing'>('idle')
   const [level,      setLevel]      = useState(0)
   const [threshold,  setThreshold]  = useState(30)
+  const [facing,     setFacing]     = useState<'environment' | 'user'>('environment')
   const [saveFolder, setSaveFolder] = useState<string | null>(null)
   const [error,      setError]      = useState<string | null>(null)
 
@@ -88,10 +98,17 @@ export default function CreateVideos() {
     setStatus('starting')
     setError(null)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
-      })
+      // Try full constraints first; fall back to bare minimum if the device rejects them
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facingRef.current }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: true,
+        })
+      } catch (inner) {
+        if ((inner as Error).name === 'NotAllowedError' || (inner as Error).name === 'PermissionDeniedError') throw inner
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingRef.current } }, audio: true })
+      }
       streamRef.current = stream
 
       // Explicit play() required on iOS — autoPlay alone is not enough for srcObject
@@ -108,10 +125,25 @@ export default function CreateVideos() {
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
         setError('denied')
       } else {
-        setError('Could not access camera or microphone.')
+        setError(`Camera error: ${name || 'unknown'} — try closing other apps using the camera.`)
       }
       setStatus('idle')
     }
+  }
+
+  async function flipCamera() {
+    const next: 'environment' | 'user' = facingRef.current === 'environment' ? 'user' : 'environment'
+    facingRef.current = next
+    setFacing(next)
+    // Stop current stream and audio without full teardown
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    audioCtxRef.current?.close()
+    streamRef.current = null
+    audioCtxRef.current = null
+    analyserRef.current = null
+    cooldownRef.current = false
+    await start()
   }
 
   function startAudio(stream: MediaStream) {
@@ -274,6 +306,20 @@ export default function CreateVideos() {
             <span className="text-white text-sm font-medium">Review</span>
           </div>
         )}
+        {/* Camera flip — only when listening, not mid-clip */}
+        {status === 'listening' && (
+          <button
+            onClick={flipCamera}
+            className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-colors cursor-pointer"
+            title={facing === 'environment' ? 'Switch to front camera' : 'Switch to back camera'}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <path d="M16 3l-4 4-4-4"/>
+              <circle cx="12" cy="13" r="3"/>
+            </svg>
+          </button>
+        )}
       </div>
 
       {error && (
@@ -283,25 +329,59 @@ export default function CreateVideos() {
               <p className="text-red-400 font-semibold">Camera &amp; microphone access blocked</p>
               {isIOS ? (
                 <div className="flex flex-col gap-4 text-sm text-gray-300">
-                  <div>
-                    <p className="text-gray-400 mb-1.5">Quick fix — reset permission for this page:</p>
-                    <ol className="flex flex-col gap-1 list-decimal list-inside leading-relaxed">
-                      <li>Tap <strong className="text-white">AA</strong> in the Safari address bar (or long-press the reload button)</li>
-                      <li>Tap <strong className="text-white">Website Settings</strong></li>
-                      <li>Set <strong className="text-white">Camera</strong> and <strong className="text-white">Microphone</strong> to <strong className="text-white">Allow</strong></li>
-                      <li>Tap <strong className="text-white">Done</strong>, then tap <strong className="text-white">Start Camera</strong> below</li>
-                    </ol>
-                  </div>
-                  <div>
-                    <p className="text-gray-400 mb-1.5">Or fix it in Settings:</p>
-                    <ol className="flex flex-col gap-1 list-decimal list-inside leading-relaxed">
-                      <li>Open the <strong className="text-white">Settings</strong> app</li>
-                      <li>Scroll down and tap <strong className="text-white">Safari</strong></li>
-                      <li>Under <em>Settings for Websites</em> → tap <strong className="text-white">Camera</strong> → <strong className="text-white">Allow</strong></li>
-                      <li>Do the same for <strong className="text-white">Microphone</strong></li>
-                      <li>Return here and tap <strong className="text-white">Start Camera</strong></li>
-                    </ol>
-                  </div>
+                  <p className="text-gray-500 text-xs">Detected browser: iOS {iosBrowser.charAt(0).toUpperCase() + iosBrowser.slice(1)}</p>
+
+                  {iosBrowser === 'chrome' && <>
+                    <div className="bg-gray-700/50 rounded-lg p-3">
+                      <p className="text-green-400 font-medium mb-1.5">Fix for this site (try this first):</p>
+                      <ol className="flex flex-col gap-1 list-decimal list-inside leading-relaxed">
+                        <li>Tap the <strong className="text-white">lock icon</strong> in Chrome's address bar</li>
+                        <li>Tap <strong className="text-white">Website settings</strong></li>
+                        <li>Set <strong className="text-white">Camera</strong> and <strong className="text-white">Microphone</strong> to <strong className="text-white">Allow</strong></li>
+                        <li>Return here and tap <strong className="text-white">Start Camera</strong></li>
+                      </ol>
+                    </div>
+                    <div>
+                      <p className="text-gray-400 mb-1.5">Or via iOS Settings:</p>
+                      <ol className="flex flex-col gap-1 list-decimal list-inside leading-relaxed">
+                        <li>Open <strong className="text-white">Settings</strong> → scroll to <strong className="text-white">Chrome</strong></li>
+                        <li>Enable <strong className="text-white">Camera</strong> and <strong className="text-white">Microphone</strong></li>
+                        <li>Return to Chrome and tap <strong className="text-white">Start Camera</strong></li>
+                      </ol>
+                    </div>
+                  </>}
+
+                  {iosBrowser === 'safari' && <>
+                    <div className="bg-gray-700/50 rounded-lg p-3">
+                      <p className="text-green-400 font-medium mb-1.5">Fix for this site (try this first):</p>
+                      <ol className="flex flex-col gap-1 list-decimal list-inside leading-relaxed">
+                        <li>Tap <strong className="text-white">AA</strong> in Safari's address bar</li>
+                        <li>Tap <strong className="text-white">Website Settings</strong></li>
+                        <li>Set <strong className="text-white">Camera</strong> and <strong className="text-white">Microphone</strong> to <strong className="text-white">Allow</strong></li>
+                        <li>Tap <strong className="text-white">Done</strong>, then tap <strong className="text-white">Start Camera</strong></li>
+                      </ol>
+                    </div>
+                    <div>
+                      <p className="text-gray-400 mb-1.5">Or via iOS Settings:</p>
+                      <ol className="flex flex-col gap-1 list-decimal list-inside leading-relaxed">
+                        <li>Open <strong className="text-white">Settings</strong> → <strong className="text-white">Apps</strong> → <strong className="text-white">Safari</strong></li>
+                        <li>Tap <strong className="text-white">Settings for Websites</strong></li>
+                        <li>Set <strong className="text-white">Camera</strong> and <strong className="text-white">Microphone</strong> to <strong className="text-white">Allow</strong></li>
+                        <li>Return here and tap <strong className="text-white">Start Camera</strong></li>
+                      </ol>
+                    </div>
+                  </>}
+
+                  {(iosBrowser === 'firefox' || iosBrowser === 'edge') && <>
+                    <div className="bg-gray-700/50 rounded-lg p-3">
+                      <p className="text-green-400 font-medium mb-1.5">Via iOS Settings:</p>
+                      <ol className="flex flex-col gap-1 list-decimal list-inside leading-relaxed">
+                        <li>Open <strong className="text-white">Settings</strong> → scroll to <strong className="text-white">{iosBrowser === 'firefox' ? 'Firefox' : 'Edge'}</strong></li>
+                        <li>Enable <strong className="text-white">Camera</strong> and <strong className="text-white">Microphone</strong></li>
+                        <li>Return here and tap <strong className="text-white">Start Camera</strong></li>
+                      </ol>
+                    </div>
+                  </>}
                 </div>
               ) : (
                 <p className="text-gray-300 text-sm">
