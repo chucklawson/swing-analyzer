@@ -289,10 +289,7 @@ export default function CreateVideos() {
     const rev = reviewRef.current
     if (!rev) {
       URL.revokeObjectURL(url)
-      setStatus('listening')
-      cooldownRef.current = false
-      startRollingRecorder()
-      return
+      setStatus('listening'); cooldownRef.current = false; startRollingRecorder(); return
     }
 
     let done = false
@@ -302,27 +299,24 @@ export default function CreateVideos() {
       if (reviewTimeoutRef.current) { clearTimeout(reviewTimeoutRef.current); reviewTimeoutRef.current = null }
       rev.onended   = null
       rev.oncanplay = null
+      if (!rev.paused) rev.pause()
       rev.src = ''
       URL.revokeObjectURL(url)
-      setStatus('listening')
-      cooldownRef.current = false
-      startRollingRecorder()
+      setStatus('listening'); cooldownRef.current = false; startRollingRecorder()
     }
 
     setStatus('reviewing')
     rev.src = url
     rev.load()
     rev.onended = finish
-
-    // Safety net: if play never starts or onended never fires, recover anyway
+    // Fallback: recover even if onended never fires (iOS play blocked, short clip, etc.)
     reviewTimeoutRef.current = setTimeout(finish, PRE_ROLL_MS + POST_ROLL_MS + 5000)
 
-    const doPlay = () => rev.play().catch(finish)
-
-    if (rev.readyState >= 3) {
-      doPlay()
-    } else {
-      rev.oncanplay = () => { rev.oncanplay = null; doPlay() }
+    // Always wait for canplay — avoids calling play() while element is not ready.
+    // If play() is rejected (iOS autoplay policy), the timeout handles recovery.
+    rev.oncanplay = () => {
+      rev.oncanplay = null
+      rev.play().catch(() => { /* timeout will recover */ })
     }
   }
 
@@ -362,13 +356,15 @@ export default function CreateVideos() {
       <div className="w-full max-w-2xl aspect-video bg-black rounded-xl overflow-hidden relative">
         <video
           ref={videoRef}
-          className={`w-full h-full object-cover ${status === 'reviewing' ? 'hidden' : ''}`}
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ opacity: status === 'reviewing' ? 0 : 1 }}
           playsInline muted
         />
         <video
           ref={reviewRef}
-          className={`w-full h-full object-cover ${status === 'reviewing' ? '' : 'hidden'}`}
-          playsInline muted
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ opacity: status === 'reviewing' ? 1 : 0 }}
+          playsInline muted autoPlay
         />
 
         {!active && (
