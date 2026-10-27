@@ -106,8 +106,7 @@ export default function CreateVideos() {
         return
       } catch { /* fall through */ }
     }
-    if (isIOS) return   // iOS — no download sheet; S3 upload goes here later
-    // Desktop (no folder set) or Android
+    // Desktop, Android, or iOS (iOS 13+ Safari saves to iCloud Downloads)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -299,31 +298,39 @@ export default function CreateVideos() {
       if (done) return
       done = true
       if (reviewTimeoutRef.current) { clearTimeout(reviewTimeoutRef.current); reviewTimeoutRef.current = null }
-      rev.onended   = null
-      rev.oncanplay = null
-      rev.autoplay  = false
+      rev.onended       = null
+      rev.oncanplay     = null
+      rev.onloadeddata  = null
+      rev.autoplay      = false
       if (!rev.paused) rev.pause()
-      rev.src = ''
+      rev.removeAttribute('src')
+      rev.load()
       URL.revokeObjectURL(url)
-      // Restore live feed
       if (videoRef.current) videoRef.current.style.visibility = ''
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder()
     }
 
-    // Hide live feed so the (initially transparent) review element doesn't show through
     if (videoRef.current) videoRef.current.style.visibility = 'hidden'
-
     setStatus('reviewing')
+
+    rev.onended = finish
+
+    // Set playback handlers BEFORE assigning src so the events aren't missed
+    let played = false
+    const tryPlay = () => {
+      if (played) return
+      played = true
+      rev.oncanplay    = null
+      rev.onloadeddata = null
+      rev.play().catch(() => setTimeout(() => rev.play().catch(() => {}), 300))
+    }
+    rev.oncanplay    = tryPlay
+    rev.onloadeddata = tryPlay
+
     rev.autoplay = true
     rev.src = url
     rev.load()
-    rev.onended = finish
     reviewTimeoutRef.current = setTimeout(finish, PRE_ROLL_MS + POST_ROLL_MS + 5000)
-
-    rev.oncanplay = () => {
-      rev.oncanplay = null
-      rev.play().catch(() => { /* timeout recovers if play is blocked */ })
-    }
   }
 
   function teardown() {
