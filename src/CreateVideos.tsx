@@ -1,8 +1,11 @@
 import { useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-const POST_ROLL_MS = 3000   // record this long after impact
-const CHUNK_MS     = 100    // timeslice + requestData interval
+const PRE_ROLL_MS         = 1000   // 1 second before trigger
+const POST_ROLL_MS        = 3000   // 3 seconds after trigger
+const CHUNK_MS            = 100    // timeslice + requestData interval
+const BUFFER_MS           = 1500   // rolling pre-roll window
+const RECORDER_RESTART_MS = 2000   // restart recorder to keep init chunk timestamp fresh
 
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
 const iosBrowser: 'chrome' | 'firefox' | 'edge' | 'safari' = (() => {
@@ -13,6 +16,8 @@ const iosBrowser: 'chrome' | 'firefox' | 'edge' | 'safari' = (() => {
   if (/EdgiOS/.test(ua)) return 'edge'
   return 'safari'
 })()
+
+interface Chunk { data: Blob; ts: number }
 
 function makeFilename(ext: string) {
   const d = new Date()
@@ -27,24 +32,43 @@ function pickMime() {
   return ''
 }
 
+// Return only the WebM initialization segment (EBML header + Tracks) with the
+// first Cluster stripped out. This prevents a frozen t≈0 frame at clip start.
+async function webmPureInit(initBlob: Blob): Promise<ArrayBuffer> {
+  const buf = new Uint8Array(await initBlob.arrayBuffer())
+  for (let i = 0; i < buf.length - 4; i++) {
+    if (buf[i] === 0x1F && buf[i+1] === 0x43 && buf[i+2] === 0xB6 && buf[i+3] === 0x75) {
+      return buf.buffer.slice(0, i)
+    }
+  }
+  return buf.buffer
+}
+
 export default function CreateVideos() {
   const navigate = useNavigate()
 
-  const videoRef        = useRef<HTMLVideoElement>(null)
-  const reviewRef       = useRef<HTMLVideoElement>(null)
-  const streamRef       = useRef<MediaStream | null>(null)
-  const audioCtxRef     = useRef<AudioContext | null>(null)
-  const analyserRef     = useRef<AnalyserNode | null>(null)
-  const rafRef          = useRef<number | null>(null)
-  const clipRecorderRef = useRef<MediaRecorder | null>(null)
-  const clipTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const clipIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const videoRef         = useRef<HTMLVideoElement>(null)
+  const reviewRef        = useRef<HTMLVideoElement>(null)
+  const streamRef        = useRef<MediaStream | null>(null)
+  const audioCtxRef      = useRef<AudioContext | null>(null)
+  const analyserRef      = useRef<AnalyserNode | null>(null)
+  const rafRef           = useRef<number | null>(null)
+
+  const rollingRecRef    = useRef<MediaRecorder | null>(null)
+  const rollingIntRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+  const restartTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const postRollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rollingInitRef   = useRef<Blob | null>(null)
+  const rollingChunksRef = useRef<Chunk[]>([])
+  const triggerTimeRef   = useRef<number | null>(null)
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const dirHandleRef    = useRef<any>(null)
-  const cooldownRef     = useRef(false)
-  const thresholdRef    = useRef(30)
-  const mimeRef         = useRef('')
-  const facingRef       = useRef<'environment' | 'user'>('environment')
+  const dirHandleRef     = useRef<any>(null)
+  const cooldownRef      = useRef(false)
+  const capturingRef     = useRef(false)
+  const thresholdRef     = useRef(30)
+  const mimeRef          = useRef('')
+  const facingRef        = useRef<'environment' | 'user'>('environment')
 
   const [status,     setStatus]     = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing'>('idle')
   const [level,      setLevel]      = useState(0)
@@ -70,7 +94,6 @@ export default function CreateVideos() {
 
   async function saveClip(blob: Blob, name: string) {
     if (dirHandleRef.current) {
-      // Silent save to chosen folder — no browser dialog
       try {
         const fh = await dirHandleRef.current.getFileHandle(name, { create: true })
         const writable = await fh.createWritable()
@@ -79,11 +102,7 @@ export default function CreateVideos() {
         return
       } catch { /* fall through */ }
     }
-    if (hasFsApi) {
-      // Desktop Chrome/Edge but no folder chosen yet — skip save, no popup
-      return
-    }
-    // Mobile (iOS, Android): system share/Files sheet
+    if (hasFsApi) return  // desktop, no folder set — skip, no popup
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -98,7 +117,6 @@ export default function CreateVideos() {
     setStatus('starting')
     setError(null)
     try {
-      // Try full constraints first; fall back to bare minimum if the device rejects them
       let stream: MediaStream
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -111,7 +129,6 @@ export default function CreateVideos() {
       }
       streamRef.current = stream
 
-      // Explicit play() required on iOS — autoPlay alone is not enough for srcObject
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.play().catch(() => {})
@@ -119,6 +136,7 @@ export default function CreateVideos() {
 
       mimeRef.current = pickMime()
       startAudio(stream)
+      startRollingRecorder()
       setStatus('listening')
     } catch (err) {
       const name = (err as Error).name
@@ -135,14 +153,15 @@ export default function CreateVideos() {
     const next: 'environment' | 'user' = facingRef.current === 'environment' ? 'user' : 'environment'
     facingRef.current = next
     setFacing(next)
-    // Stop current stream and audio without full teardown
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    stopRollingRecorder()
     streamRef.current?.getTracks().forEach(t => t.stop())
     audioCtxRef.current?.close()
     streamRef.current = null
     audioCtxRef.current = null
     analyserRef.current = null
     cooldownRef.current = false
+    capturingRef.current = false
     await start()
   }
 
@@ -169,49 +188,86 @@ export default function CreateVideos() {
     rafRef.current = requestAnimationFrame(tick)
   }
 
-  function trigger() {
+  function stopRollingRecorder() {
+    if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null }
+    if (rollingIntRef.current)   { clearInterval(rollingIntRef.current); rollingIntRef.current = null }
+    rollingRecRef.current?.stop()
+    rollingRecRef.current = null
+  }
+
+  function startRollingRecorder() {
     if (!streamRef.current) return
-    cooldownRef.current = true
-    setStatus('recording')
-
     const mime = mimeRef.current
-    const chunks: Blob[] = []
+    const rec = new MediaRecorder(streamRef.current, mime ? { mimeType: mime } : undefined)
+    rollingRecRef.current = rec
+    rollingInitRef.current = null
+    rollingChunksRef.current = []
 
-    // Fresh recorder per clip — timestamps start at 0, no discontinuity
-    const recorder = new MediaRecorder(streamRef.current, mime ? { mimeType: mime } : undefined)
-    clipRecorderRef.current = recorder
-
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunks.push(e.data)
+    rec.ondataavailable = (e) => {
+      if (!e.data || e.data.size === 0) return
+      if (!rollingInitRef.current) { rollingInitRef.current = e.data; return }
+      const chunk: Chunk = { data: e.data, ts: Date.now() }
+      rollingChunksRef.current.push(chunk)
+      if (!capturingRef.current) {
+        const cutoff = Date.now() - BUFFER_MS
+        rollingChunksRef.current = rollingChunksRef.current.filter(c => c.ts >= cutoff)
+      }
     }
 
-    recorder.onstop = () => {
-      clipRecorderRef.current = null
-      if (clipIntervalRef.current) { clearInterval(clipIntervalRef.current); clipIntervalRef.current = null }
+    rec.start(CHUNK_MS)
 
-      if (!streamRef.current) { cooldownRef.current = false; return }  // torn down mid-clip
+    rollingIntRef.current = setInterval(() => {
+      if (rec.state === 'recording') rec.requestData()
+    }, CHUNK_MS)
 
-      if (chunks.length > 0) {
-        const blob = new Blob(chunks, { type: mime || 'video/webm' })
-        const ext  = mime.includes('mp4') ? 'mp4' : 'webm'
+    // Restart periodically so the init chunk timestamp is never more than
+    // RECORDER_RESTART_MS old — keeps the gap before the pre-roll short.
+    restartTimerRef.current = setTimeout(() => {
+      if (!capturingRef.current && rec === rollingRecRef.current) {
+        stopRollingRecorder()
+        startRollingRecorder()
+      }
+    }, RECORDER_RESTART_MS)
+  }
+
+  function trigger() {
+    cooldownRef.current = true
+    capturingRef.current = true
+    setStatus('recording')
+    triggerTimeRef.current = Date.now()
+
+    // Block recorder restart during capture
+    if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null }
+
+    postRollTimerRef.current = setTimeout(finalize, POST_ROLL_MS)
+  }
+
+  function finalize() {
+    if (rollingRecRef.current?.state === 'recording') rollingRecRef.current.requestData()
+
+    setTimeout(async () => {
+      const triggerTime = triggerTimeRef.current!
+      const clipChunks  = rollingChunksRef.current.filter(c => c.ts >= triggerTime - PRE_ROLL_MS)
+      const init        = rollingInitRef.current
+
+      capturingRef.current = false
+      triggerTimeRef.current = null
+      stopRollingRecorder()
+      rollingChunksRef.current = []
+
+      if (init && clipChunks.length > 0) {
+        const mime     = mimeRef.current || 'video/webm'
+        const ext      = mime.includes('mp4') ? 'mp4' : 'webm'
+        const initData = mime.startsWith('video/webm') ? await webmPureInit(init) : await init.arrayBuffer()
+        const blob     = new Blob([initData, ...clipChunks.map(c => c.data)], { type: mime })
         saveClip(blob, makeFilename(ext))
         showReview(blob)
       } else {
         setStatus('listening')
         cooldownRef.current = false
+        startRollingRecorder()
       }
-    }
-
-    recorder.start(CHUNK_MS)
-
-    // Force periodic data on iOS which may ignore timeslice
-    clipIntervalRef.current = setInterval(() => {
-      if (recorder.state === 'recording') recorder.requestData()
-    }, CHUNK_MS)
-
-    clipTimerRef.current = setTimeout(() => {
-      if (recorder.state === 'recording') recorder.stop()
-    }, POST_ROLL_MS)
+    }, 250)
   }
 
   function showReview(blob: Blob) {
@@ -221,11 +277,11 @@ export default function CreateVideos() {
       URL.revokeObjectURL(url)
       setStatus('listening')
       cooldownRef.current = false
+      startRollingRecorder()
       return
     }
     setStatus('reviewing')
     rev.src = url
-    rev.currentTime = 0
     rev.play().catch(() => {})
     rev.onended = () => {
       rev.onended = null
@@ -233,20 +289,24 @@ export default function CreateVideos() {
       URL.revokeObjectURL(url)
       setStatus('listening')
       cooldownRef.current = false
+      startRollingRecorder()
     }
   }
 
   function teardown() {
-    if (rafRef.current)          cancelAnimationFrame(rafRef.current)
-    if (clipTimerRef.current)    clearTimeout(clipTimerRef.current)
-    if (clipIntervalRef.current) clearInterval(clipIntervalRef.current)
-    clipRecorderRef.current?.stop()
+    if (rafRef.current)        cancelAnimationFrame(rafRef.current)
+    if (postRollTimerRef.current) clearTimeout(postRollTimerRef.current)
+    stopRollingRecorder()
     streamRef.current?.getTracks().forEach(t => t.stop())
     audioCtxRef.current?.close()
-    streamRef.current       = null
-    clipRecorderRef.current = null
-    audioCtxRef.current     = null
-    cooldownRef.current     = false
+    streamRef.current    = null
+    audioCtxRef.current  = null
+    analyserRef.current  = null
+    cooldownRef.current  = false
+    capturingRef.current = false
+    triggerTimeRef.current = null
+    rollingInitRef.current = null
+    rollingChunksRef.current = []
     setStatus('idle')
     setLevel(0)
   }
@@ -268,14 +328,12 @@ export default function CreateVideos() {
 
       {/* Camera preview / review */}
       <div className="w-full max-w-2xl aspect-video bg-black rounded-xl overflow-hidden relative">
-        {/* Live stream — hidden during review */}
         <video
           ref={videoRef}
           className={`w-full h-full object-cover ${status === 'reviewing' ? 'hidden' : ''}`}
           playsInline
           muted
         />
-        {/* Clip playback — only visible during review */}
         <video
           ref={reviewRef}
           className={`w-full h-full object-cover ${status === 'reviewing' ? '' : 'hidden'}`}
@@ -306,7 +364,6 @@ export default function CreateVideos() {
             <span className="text-white text-sm font-medium">Review</span>
           </div>
         )}
-        {/* Camera flip — only when listening, not mid-clip */}
         {status === 'listening' && (
           <button
             onClick={flipCamera}
@@ -418,7 +475,7 @@ export default function CreateVideos() {
             <span className="text-gray-500 text-sm w-10 text-right">{threshold}%</span>
           </div>
           <p className="text-gray-600 text-xs text-center">
-            Triggers when level exceeds threshold · 3s clip
+            Triggers when level exceeds threshold · 1s pre-roll · 3s clip
           </p>
         </div>
       )}
