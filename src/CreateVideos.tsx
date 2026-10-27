@@ -78,6 +78,7 @@ export default function CreateVideos() {
   const [facing,     setFacing]     = useState<'environment' | 'user'>('environment')
   const [saveFolder, setSaveFolder] = useState<string | null>(null)
   const [error,      setError]      = useState<string | null>(null)
+  const [clipInfo,   setClipInfo]   = useState<string>('')
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasFsApi = 'showDirectoryPicker' in (window as any)
@@ -263,6 +264,8 @@ export default function CreateVideos() {
 
       if (!streamRef.current) { cooldownRef.current = false; return }
 
+      setClipInfo(`init:${init ? '✓' : '✗'} chunks:${clipChunks.length}`)
+
       if (init && clipChunks.length > 0) {
         const mime = mimeRef.current || 'video/webm'
         const ext  = mime.includes('mp4') ? 'mp4' : 'webm'
@@ -297,6 +300,7 @@ export default function CreateVideos() {
       if (reviewTimeoutRef.current) { clearTimeout(reviewTimeoutRef.current); reviewTimeoutRef.current = null }
       vid.onended   = null
       vid.oncanplay = null
+      vid.autoplay  = false
       if (!vid.paused) vid.pause()
       vid.src = ''
       URL.revokeObjectURL(url)
@@ -309,17 +313,18 @@ export default function CreateVideos() {
     }
 
     setStatus('reviewing')
+    vid.autoplay = true    // tell browser to play as soon as ready (most reliable on iOS)
     vid.srcObject = null   // detach live stream
     vid.src = url
     vid.load()
     vid.onended = finish
     reviewTimeoutRef.current = setTimeout(finish, PRE_ROLL_MS + POST_ROLL_MS + 5000)
 
-    const doPlay = () => vid.play().catch(finish)
-    if (vid.readyState >= 2) {
-      doPlay()
-    } else {
-      vid.oncanplay = () => { vid.oncanplay = null; doPlay() }
+    // Belt-and-suspenders: also call play() explicitly when canplay fires.
+    // If play() rejects (browser policy), autoplay may still work; timeout recovers otherwise.
+    vid.oncanplay = () => {
+      vid.oncanplay = null
+      vid.play().catch(() => { /* rely on autoplay or timeout */ })
     }
   }
 
@@ -498,6 +503,9 @@ export default function CreateVideos() {
           <p className="text-gray-600 text-xs text-center">
             Triggers when level exceeds threshold · 1s pre-roll · 3s clip
           </p>
+          {clipInfo && (
+            <p className="text-yellow-500 text-xs text-center font-mono">{clipInfo}</p>
+          )}
         </div>
       )}
 
