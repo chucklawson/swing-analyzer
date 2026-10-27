@@ -50,7 +50,6 @@ export default function CreateVideos() {
   const navigate = useNavigate()
 
   const videoRef          = useRef<HTMLVideoElement>(null)
-  const reviewRef         = useRef<HTMLVideoElement>(null)
   const streamRef         = useRef<MediaStream | null>(null)
   const audioCtxRef       = useRef<AudioContext | null>(null)
   const analyserRef       = useRef<AnalyserNode | null>(null)
@@ -105,9 +104,8 @@ export default function CreateVideos() {
         return
       } catch { /* fall through */ }
     }
-    if (hasFsApi) return   // desktop, no folder set — skip
-    if (isIOS)   return   // iOS — no download sheet; S3 upload goes here later
-    // Android / other mobile
+    if (isIOS) return   // iOS — no download sheet; S3 upload goes here later
+    // Desktop (no folder set) or Android
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -285,38 +283,43 @@ export default function CreateVideos() {
   }
 
   function showReview(blob: Blob) {
-    const url = URL.createObjectURL(blob)
-    const rev = reviewRef.current
-    if (!rev) {
-      URL.revokeObjectURL(url)
+    const vid = videoRef.current
+    if (!vid) {
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder(); return
     }
+
+    const url = URL.createObjectURL(blob)
 
     let done = false
     const finish = () => {
       if (done) return
       done = true
       if (reviewTimeoutRef.current) { clearTimeout(reviewTimeoutRef.current); reviewTimeoutRef.current = null }
-      rev.onended   = null
-      rev.oncanplay = null
-      if (!rev.paused) rev.pause()
-      rev.src = ''
+      vid.onended   = null
+      vid.oncanplay = null
+      if (!vid.paused) vid.pause()
+      vid.src = ''
       URL.revokeObjectURL(url)
+      // Restore live feed on the same element
+      if (streamRef.current) {
+        vid.srcObject = streamRef.current
+        vid.play().catch(() => {})
+      }
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder()
     }
 
     setStatus('reviewing')
-    rev.src = url
-    rev.load()
-    rev.onended = finish
-    // Fallback: recover even if onended never fires (iOS play blocked, short clip, etc.)
+    vid.srcObject = null   // detach live stream
+    vid.src = url
+    vid.load()
+    vid.onended = finish
     reviewTimeoutRef.current = setTimeout(finish, PRE_ROLL_MS + POST_ROLL_MS + 5000)
 
-    // Always wait for canplay — avoids calling play() while element is not ready.
-    // If play() is rejected (iOS autoplay policy), the timeout handles recovery.
-    rev.oncanplay = () => {
-      rev.oncanplay = null
-      rev.play().catch(() => { /* timeout will recover */ })
+    const doPlay = () => vid.play().catch(finish)
+    if (vid.readyState >= 2) {
+      doPlay()
+    } else {
+      vid.oncanplay = () => { vid.oncanplay = null; doPlay() }
     }
   }
 
@@ -357,14 +360,7 @@ export default function CreateVideos() {
         <video
           ref={videoRef}
           className="absolute inset-0 w-full h-full object-cover"
-          style={{ opacity: status === 'reviewing' ? 0 : 1 }}
           playsInline muted
-        />
-        <video
-          ref={reviewRef}
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{ opacity: status === 'reviewing' ? 1 : 0 }}
-          playsInline muted autoPlay
         />
 
         {!active && (
