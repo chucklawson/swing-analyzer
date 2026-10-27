@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 const POST_ROLL_MS = 3000   // record this long after impact
 const CHUNK_MS     = 100    // timeslice + requestData interval
 
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+
 function makeFilename(ext: string) {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -101,8 +103,13 @@ export default function CreateVideos() {
       mimeRef.current = pickMime()
       startAudio(stream)
       setStatus('listening')
-    } catch {
-      setError('Could not access camera or microphone — check permissions.')
+    } catch (err) {
+      const name = (err as Error).name
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setError('denied')
+      } else {
+        setError('Could not access camera or microphone.')
+      }
       setStatus('idle')
     }
   }
@@ -269,7 +276,44 @@ export default function CreateVideos() {
         )}
       </div>
 
-      {error && <p className="text-red-400 text-sm max-w-2xl text-center">{error}</p>}
+      {error && (
+        <div className="w-full max-w-2xl">
+          {error === 'denied' ? (
+            <div className="bg-gray-800 rounded-xl p-5 flex flex-col gap-3">
+              <p className="text-red-400 font-semibold">Camera &amp; microphone access blocked</p>
+              {isIOS ? (
+                <div className="flex flex-col gap-4 text-sm text-gray-300">
+                  <div>
+                    <p className="text-gray-400 mb-1.5">Quick fix — reset permission for this page:</p>
+                    <ol className="flex flex-col gap-1 list-decimal list-inside leading-relaxed">
+                      <li>Tap <strong className="text-white">AA</strong> in the Safari address bar (or long-press the reload button)</li>
+                      <li>Tap <strong className="text-white">Website Settings</strong></li>
+                      <li>Set <strong className="text-white">Camera</strong> and <strong className="text-white">Microphone</strong> to <strong className="text-white">Allow</strong></li>
+                      <li>Tap <strong className="text-white">Done</strong>, then tap <strong className="text-white">Start Camera</strong> below</li>
+                    </ol>
+                  </div>
+                  <div>
+                    <p className="text-gray-400 mb-1.5">Or fix it in Settings:</p>
+                    <ol className="flex flex-col gap-1 list-decimal list-inside leading-relaxed">
+                      <li>Open the <strong className="text-white">Settings</strong> app</li>
+                      <li>Scroll down and tap <strong className="text-white">Safari</strong></li>
+                      <li>Under <em>Settings for Websites</em> → tap <strong className="text-white">Camera</strong> → <strong className="text-white">Allow</strong></li>
+                      <li>Do the same for <strong className="text-white">Microphone</strong></li>
+                      <li>Return here and tap <strong className="text-white">Start Camera</strong></li>
+                    </ol>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-gray-300 text-sm">
+                  Click the lock or camera icon in the browser address bar, allow camera and microphone for this site, then tap <strong>Start Camera</strong> again.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-red-400 text-sm text-center">{error}</p>
+          )}
+        </div>
+      )}
 
       {/* Level + threshold */}
       {active && (
