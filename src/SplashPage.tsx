@@ -58,13 +58,21 @@ export default function SplashPage() {
         Two-camera slow-motion pose analysis.<br />See your angles. Fix your swing.
       </p>
 
-      {/* CTA */}
-      <button
-        onClick={() => navigate('/analyzer')}
-        className="px-10 py-4 rounded-xl text-lg font-semibold text-black bg-green-400 hover:bg-green-300 active:scale-95 transition-all duration-150 shadow-lg shadow-green-900/40 cursor-pointer"
-      >
-        Analyze My Swing →
-      </button>
+      {/* CTA buttons */}
+      <div className="flex flex-col items-center gap-4">
+        <button
+          onClick={() => navigate('/analyzer')}
+          className="px-10 py-4 rounded-xl text-lg font-semibold text-black bg-green-400 hover:bg-green-300 active:scale-95 transition-all duration-150 shadow-lg shadow-green-900/40 cursor-pointer w-64"
+        >
+          Analyze My Swing →
+        </button>
+        <button
+          onClick={() => navigate('/create-videos')}
+          className="px-10 py-4 rounded-xl text-lg font-semibold text-green-400 border border-green-400 hover:bg-green-400 hover:text-black active:scale-95 transition-all duration-150 cursor-pointer w-64"
+        >
+          Create Videos →
+        </button>
+      </div>
 
       <p className="absolute bottom-6 text-gray-700 text-xs tracking-wider">
         OILY SWING © {new Date().getFullYear()}
