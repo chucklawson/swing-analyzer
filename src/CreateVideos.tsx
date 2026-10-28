@@ -104,6 +104,49 @@ async function mp4PureInit(initBlob: Blob): Promise<ArrayBuffer> {
   return buf.buffer
 }
 
+// Rewrite base_media_decode_time in every tfdt box so the first fragment
+// of each track starts at T=0. iOS MediaRecorder embeds absolute session
+// timestamps, so without this the assembled clip shows black from T=0 until
+// the pre-roll window begins (often 10–60 s into the session).
+async function mp4NormalizeTimecodes(blob: Blob): Promise<Blob> {
+  const buf = new Uint8Array(await blob.arrayBuffer())
+  const firstTimes: Record<number, number> = {}
+  let trackId = 1
+
+  for (let i = 0; i < buf.length - 20; i++) {
+    // tfhd — read current track_ID (version:1 + flags:3 + track_ID:4 = offset 12)
+    if (buf[i+4]===0x74&&buf[i+5]===0x66&&buf[i+6]===0x68&&buf[i+7]===0x64) {
+      trackId = ((buf[i+12]<<24)|(buf[i+13]<<16)|(buf[i+14]<<8)|buf[i+15])>>>0
+    }
+    // tfdt — rewrite base_media_decode_time (version:1 + flags:3 = offset 8; time at 12)
+    if (buf[i+4]===0x74&&buf[i+5]===0x66&&buf[i+6]===0x64&&buf[i+7]===0x74) {
+      const version = buf[i + 8]
+      const toff    = i + 12
+      let timeVal: number
+      if (version === 1) {
+        const hi = ((buf[toff]<<24)|(buf[toff+1]<<16)|(buf[toff+2]<<8)|buf[toff+3])>>>0
+        const lo = ((buf[toff+4]<<24)|(buf[toff+5]<<16)|(buf[toff+6]<<8)|buf[toff+7])>>>0
+        timeVal = hi * 4294967296 + lo
+      } else {
+        timeVal = ((buf[toff]<<24)|(buf[toff+1]<<16)|(buf[toff+2]<<8)|buf[toff+3])>>>0
+      }
+      if (!(trackId in firstTimes)) firstTimes[trackId] = timeVal
+      let newTime = timeVal - firstTimes[trackId]
+      if (version === 1) {
+        const hi = Math.floor(newTime / 4294967296); const lo = newTime >>> 0
+        buf[toff]  =(hi>>>24)&0xFF; buf[toff+1]=(hi>>>16)&0xFF
+        buf[toff+2]=(hi>>>8)&0xFF;  buf[toff+3]=hi&0xFF
+        buf[toff+4]=(lo>>>24)&0xFF; buf[toff+5]=(lo>>>16)&0xFF
+        buf[toff+6]=(lo>>>8)&0xFF;  buf[toff+7]=lo&0xFF
+      } else {
+        buf[toff]  =(newTime>>>24)&0xFF; buf[toff+1]=(newTime>>>16)&0xFF
+        buf[toff+2]=(newTime>>>8)&0xFF;  buf[toff+3]=newTime&0xFF
+      }
+    }
+  }
+  return new Blob([buf], { type: blob.type })
+}
+
 export default function CreateVideos() {
   const navigate = useNavigate()
 
@@ -333,6 +376,7 @@ export default function CreateVideos() {
         processInit(init).then(async initData => {
           let blob = new Blob([initData, ...clipChunks.map(c => c.data)], { type: mime })
           if (mime.startsWith('video/webm')) blob = await webmNormalizeTimecodes(blob)
+          else if (mime.includes('mp4'))    blob = await mp4NormalizeTimecodes(blob)
           saveClip(blob, makeFilename(ext))
           showReview(blob)
         })
@@ -360,10 +404,11 @@ export default function CreateVideos() {
       if (done) return
       done = true
       if (reviewTimeoutRef.current) { clearTimeout(reviewTimeoutRef.current); reviewTimeoutRef.current = null }
-      rev.onended       = null
-      rev.oncanplay     = null
-      rev.onloadeddata  = null
-      rev.autoplay      = false
+      rev.onended          = null
+      rev.oncanplay        = null
+      rev.onloadeddata     = null
+      rev.onloadedmetadata = null
+      rev.autoplay         = false
       if (!rev.paused) rev.pause()
       rev.removeAttribute('src')
       rev.load()
@@ -377,7 +422,16 @@ export default function CreateVideos() {
 
     rev.onended = finish
 
-    // Set playback handlers BEFORE assigning src so the events aren't missed
+    // Seek to the first seekable position — normalizeTimecodes should make
+    // this T=0, but this is a safety net in case any offset slips through.
+    rev.onloadedmetadata = () => {
+      rev.onloadedmetadata = null
+      if (rev.seekable.length > 0 && rev.seekable.start(0) > 0.05) {
+        rev.currentTime = rev.seekable.start(0)
+      }
+    }
+
+    // Set playback handlers BEFORE assigning src so events aren't missed
     let played = false
     const tryPlay = () => {
       if (played) return
@@ -389,6 +443,7 @@ export default function CreateVideos() {
     rev.oncanplay    = tryPlay
     rev.onloadeddata = tryPlay
 
+    rev.muted    = true   // explicit — iOS autoplay requires muted
     rev.autoplay = true
     rev.src = url
     rev.load()
