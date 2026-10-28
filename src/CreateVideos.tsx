@@ -51,6 +51,44 @@ async function webmPureInit(initBlob: Blob): Promise<ArrayBuffer> {
   return buf.buffer
 }
 
+// Rewrite every Cluster Timecode in an assembled WebM blob so the first
+// cluster is at T=0. Without this the clip starts at whatever absolute
+// timestamp the rolling recorder was at when the pre-roll began, so the
+// video element shows black for N seconds before any frame appears.
+async function webmNormalizeTimecodes(blob: Blob): Promise<Blob> {
+  const buf = new Uint8Array(await blob.arrayBuffer())
+  let firstTimecode = -1
+
+  for (let i = 0; i < buf.length - 20; i++) {
+    if (buf[i] !== 0x1F || buf[i+1] !== 0x43 || buf[i+2] !== 0xB6 || buf[i+3] !== 0x75) continue
+
+    // Determine the VINT length of the cluster size field
+    const sb = buf[i + 4]
+    let sizeLen = 8
+    for (let b = 7; b >= 0; b--) { if (sb & (1 << b)) { sizeLen = 8 - b; break } }
+
+    const tcOff = i + 4 + sizeLen
+    if (tcOff + 4 >= buf.length || buf[tcOff] !== 0xE7) continue  // no Timecode element
+
+    // VINT-decode the Timecode element's data size (typically 0x81 or 0x82)
+    const tcSzByte = buf[tcOff + 1]
+    let tcSize: number
+    if      (tcSzByte & 0x80) tcSize = tcSzByte & 0x7F
+    else if (tcSzByte & 0x40) tcSize = ((tcSzByte & 0x3F) << 8) | buf[tcOff + 2]
+    else continue
+    if (tcSize < 1 || tcSize > 4) continue
+
+    let tcVal = 0
+    for (let j = 0; j < tcSize; j++) tcVal = (tcVal << 8) | buf[tcOff + 2 + j]
+
+    if (firstTimecode < 0) firstTimecode = tcVal
+    let newTc = tcVal - firstTimecode
+    for (let j = tcSize - 1; j >= 0; j--) { buf[tcOff + 2 + j] = newTc & 0xFF; newTc >>>= 8 }
+  }
+
+  return new Blob([buf], { type: blob.type })
+}
+
 // Strip any moof+mdat from the MP4 init blob — keep only ftyp+moov so the
 // assembled clip starts cleanly at the pre-roll chunks (no t=0 gap).
 async function mp4PureInit(initBlob: Blob): Promise<ArrayBuffer> {
@@ -292,8 +330,9 @@ export default function CreateVideos() {
       if (init && clipChunks.length > 0) {
         const ext = mime.includes('mp4') ? 'mp4' : 'webm'
         const processInit = mime.startsWith('video/webm') ? webmPureInit : mp4PureInit
-        processInit(init).then(initData => {
-          const blob = new Blob([initData, ...clipChunks.map(c => c.data)], { type: mime })
+        processInit(init).then(async initData => {
+          let blob = new Blob([initData, ...clipChunks.map(c => c.data)], { type: mime })
+          if (mime.startsWith('video/webm')) blob = await webmNormalizeTimecodes(blob)
           saveClip(blob, makeFilename(ext))
           showReview(blob)
         })
