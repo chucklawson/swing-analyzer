@@ -9,7 +9,9 @@ const BUFFER_MS           = 1500
 // to the pre-roll chunks without randomly wiping the buffer mid-session.
 const RECORDER_RESTART_MS = 60000
 
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+// iPadOS 13+ in desktop mode reports as MacIntel but has maxTouchPoints > 1
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 const iosBrowser: 'chrome' | 'firefox' | 'edge' | 'safari' = (() => {
   if (!isIOS) return 'safari'
   const ua = navigator.userAgent
@@ -24,16 +26,22 @@ interface Chunk { data: Blob; ts: number }
 function makeFilename(ext: string) {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-A.${ext}`
+  const date = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`
+  const key   = `clip-count-${date}`
+  const count = (parseInt(localStorage.getItem(key) ?? '0') + 1)
+  localStorage.setItem(key, String(count))
+  return `${date}-${count}-A.${ext}`
 }
 
 function pickMime() {
-  for (const t of [
-    'video/webm;codecs=vp9',
-    'video/webm',
-    'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
-    'video/mp4',
-  ]) {
+  // iOS claims VP9/WebM support via isTypeSupported but cannot decode WebM
+  // in a video element, so force MP4 on all iOS/iPadOS devices.
+  const order = isIOS
+    ? ['video/mp4;codecs="avc1.42E01E,mp4a.40.2"', 'video/mp4',
+       'video/webm;codecs=vp9', 'video/webm']
+    : ['video/webm;codecs=vp9', 'video/webm',
+       'video/mp4;codecs="avc1.42E01E,mp4a.40.2"', 'video/mp4']
+  for (const t of order) {
     if (MediaRecorder.isTypeSupported(t)) return t
   }
   return ''
@@ -181,6 +189,7 @@ export default function CreateVideos() {
   const [saveFolder, setSaveFolder] = useState<string | null>(null)
   const [error,      setError]      = useState<string | null>(null)
   const [clipInfo,   setClipInfo]   = useState<string>('')
+  const [reviewTap,  setReviewTap]  = useState(false)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasFsApi = 'showDirectoryPicker' in (window as any)
@@ -414,6 +423,7 @@ export default function CreateVideos() {
       rev.load()
       URL.revokeObjectURL(url)
       if (videoRef.current) videoRef.current.style.visibility = ''
+      setReviewTap(false)
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder()
     }
 
@@ -438,13 +448,16 @@ export default function CreateVideos() {
       played = true
       rev.oncanplay    = null
       rev.onloadeddata = null
-      rev.play().catch(() => setTimeout(() => rev.play().catch(() => {}), 300))
+      rev.play().catch(() => setTimeout(() =>
+        rev.play().catch(() => setReviewTap(true))   // show tap overlay if autoplay blocked
+      , 300))
     }
     rev.oncanplay    = tryPlay
     rev.onloadeddata = tryPlay
 
     rev.muted    = true   // explicit — iOS autoplay requires muted
     rev.autoplay = true
+    rev.setAttribute('playsinline', '')
     rev.src = url
     rev.load()
     reviewTimeoutRef.current = setTimeout(finish, PRE_ROLL_MS + POST_ROLL_MS + 5000)
@@ -466,6 +479,7 @@ export default function CreateVideos() {
     rollingInitRef.current   = null
     rollingChunksRef.current = []
     setStatus('idle')
+    setReviewTap(false)
     setLevel(0)
   }
 
@@ -521,6 +535,20 @@ export default function CreateVideos() {
               <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
               <span className="text-white text-sm font-medium">Review</span>
             </div>
+          )}
+          {status === 'reviewing' && reviewTap && (
+            <button
+              className="absolute inset-0 flex items-center justify-center"
+              style={{ pointerEvents: 'auto', background: 'transparent' }}
+              onClick={() => {
+                setReviewTap(false)
+                reviewRef.current?.play().catch(() => {})
+              }}
+            >
+              <div className="w-20 h-20 rounded-full bg-black/50 flex items-center justify-center">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+              </div>
+            </button>
           )}
           {status === 'listening' && (
             <button
