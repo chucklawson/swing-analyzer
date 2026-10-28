@@ -119,39 +119,52 @@ async function mp4PureInit(initBlob: Blob): Promise<ArrayBuffer> {
 async function mp4NormalizeTimecodes(blob: Blob): Promise<Blob> {
   const buf = new Uint8Array(await blob.arrayBuffer())
   const firstTimes: Record<number, number> = {}
-  let trackId = 1
 
-  for (let i = 0; i < buf.length - 20; i++) {
-    // tfhd — read current track_ID (version:1 + flags:3 + track_ID:4 = offset 12)
-    if (buf[i+4]===0x74&&buf[i+5]===0x66&&buf[i+6]===0x68&&buf[i+7]===0x64) {
-      trackId = ((buf[i+12]<<24)|(buf[i+13]<<16)|(buf[i+14]<<8)|buf[i+15])>>>0
-    }
-    // tfdt — rewrite base_media_decode_time (version:1 + flags:3 = offset 8; time at 12)
-    if (buf[i+4]===0x74&&buf[i+5]===0x66&&buf[i+6]===0x64&&buf[i+7]===0x74) {
-      const version = buf[i + 8]
-      const toff    = i + 12
-      let timeVal: number
-      if (version === 1) {
-        const hi = ((buf[toff]<<24)|(buf[toff+1]<<16)|(buf[toff+2]<<8)|buf[toff+3])>>>0
-        const lo = ((buf[toff+4]<<24)|(buf[toff+5]<<16)|(buf[toff+6]<<8)|buf[toff+7])>>>0
-        timeVal = hi * 4294967296 + lo
-      } else {
-        timeVal = ((buf[toff]<<24)|(buf[toff+1]<<16)|(buf[toff+2]<<8)|buf[toff+3])>>>0
+  const u32 = (o: number) => ((buf[o]<<24)|(buf[o+1]<<16)|(buf[o+2]<<8)|buf[o+3])>>>0
+
+  // Proper recursive box walker — only reads tfhd/tfdt inside moof > traf,
+  // avoiding false matches in mdat video frame data.
+  function walkBoxes(start: number, end: number, inTraf: boolean, trackId: { v: number }) {
+    let i = start
+    while (i + 8 <= end) {
+      const size = u32(i)
+      if (size < 8 || i + size > end) break
+      const type = String.fromCharCode(buf[i+4], buf[i+5], buf[i+6], buf[i+7])
+
+      if (type === 'moof') walkBoxes(i + 8, i + size, false, { v: 0 })
+      if (type === 'traf') walkBoxes(i + 8, i + size, true,  { v: 0 })
+
+      if (inTraf) {
+        if (type === 'tfhd') {
+          // size(4)+type(4)+version(1)+flags(3) = 12 bytes before track_ID
+          trackId.v = u32(i + 12)
+        }
+        if (type === 'tfdt') {
+          const version = buf[i + 8]
+          const toff    = i + 12   // skip size+type+version+flags
+          let timeVal: number
+          if (version === 1) {
+            timeVal = u32(toff) * 4294967296 + u32(toff + 4)
+          } else {
+            timeVal = u32(toff)
+          }
+          const tid = trackId.v
+          if (!(tid in firstTimes)) firstTimes[tid] = timeVal
+          let t = timeVal - firstTimes[tid]
+          if (version === 1) {
+            const hi = Math.floor(t / 4294967296); const lo = t >>> 0
+            buf[toff]=(hi>>>24)&0xFF; buf[toff+1]=(hi>>>16)&0xFF; buf[toff+2]=(hi>>>8)&0xFF; buf[toff+3]=hi&0xFF
+            buf[toff+4]=(lo>>>24)&0xFF; buf[toff+5]=(lo>>>16)&0xFF; buf[toff+6]=(lo>>>8)&0xFF; buf[toff+7]=lo&0xFF
+          } else {
+            buf[toff]=(t>>>24)&0xFF; buf[toff+1]=(t>>>16)&0xFF; buf[toff+2]=(t>>>8)&0xFF; buf[toff+3]=t&0xFF
+          }
+        }
       }
-      if (!(trackId in firstTimes)) firstTimes[trackId] = timeVal
-      let newTime = timeVal - firstTimes[trackId]
-      if (version === 1) {
-        const hi = Math.floor(newTime / 4294967296); const lo = newTime >>> 0
-        buf[toff]  =(hi>>>24)&0xFF; buf[toff+1]=(hi>>>16)&0xFF
-        buf[toff+2]=(hi>>>8)&0xFF;  buf[toff+3]=hi&0xFF
-        buf[toff+4]=(lo>>>24)&0xFF; buf[toff+5]=(lo>>>16)&0xFF
-        buf[toff+6]=(lo>>>8)&0xFF;  buf[toff+7]=lo&0xFF
-      } else {
-        buf[toff]  =(newTime>>>24)&0xFF; buf[toff+1]=(newTime>>>16)&0xFF
-        buf[toff+2]=(newTime>>>8)&0xFF;  buf[toff+3]=newTime&0xFF
-      }
+      i += size
     }
   }
+
+  walkBoxes(0, buf.length, false, { v: 0 })
   return new Blob([buf], { type: blob.type })
 }
 
@@ -417,6 +430,7 @@ export default function CreateVideos() {
       rev.oncanplay        = null
       rev.onloadeddata     = null
       rev.onloadedmetadata = null
+      rev.onerror          = null
       rev.autoplay         = false
       if (!rev.paused) rev.pause()
       rev.removeAttribute('src')
@@ -454,6 +468,17 @@ export default function CreateVideos() {
     }
     rev.oncanplay    = tryPlay
     rev.onloadeddata = tryPlay
+
+    // Append media error code to debug line so we can see why iOS rejects the blob
+    rev.onerror = () => {
+      const code = rev.error?.code ?? 0
+      setClipInfo(prev => `${prev} err:${code}`)
+      setReviewTap(true)
+    }
+
+    // Safety net: if neither canplay nor loadeddata fires within 500 ms, force a
+    // play attempt anyway — iOS sometimes skips these events on blob URLs.
+    setTimeout(() => { if (!played) tryPlay() }, 500)
 
     rev.muted    = true   // explicit — iOS autoplay requires muted
     rev.autoplay = true
