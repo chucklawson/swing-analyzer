@@ -220,16 +220,36 @@ export default function CreateVideos() {
   }
 
   async function saveClip(blob: Blob, name: string) {
+    // OPFS: Origin Private File System — completely silent, no user dialog.
+    // Works on iOS 16 + (Safari & Chrome), desktop Chrome 86+, Firefox 111+.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const storageDir = (navigator.storage as any)?.getDirectory
+    if (storageDir) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const root = await (navigator.storage as any).getDirectory()
+        const fh = await root.getFileHandle(name, { create: true })
+        const writable = await fh.createWritable()
+        await writable.write(blob)
+        await writable.close()
+        setClipInfo(prev => `${prev} →saved`)
+        return
+      } catch { /* fall through */ }
+    }
+
+    // Desktop File System Access API — user picks a folder once, saves silently thereafter
     if (dirHandleRef.current) {
       try {
         const fh = await dirHandleRef.current.getFileHandle(name, { create: true })
         const writable = await fh.createWritable()
         await writable.write(blob)
         await writable.close()
+        setClipInfo(prev => `${prev} →saved:fs`)
         return
       } catch { /* fall through */ }
     }
-    // Desktop, Android, or iOS (iOS 13+ Safari saves to iCloud Downloads)
+
+    // Last resort: browser download dialog
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -238,6 +258,7 @@ export default function CreateVideos() {
     a.click()
     document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(url), 2000)
+    setClipInfo(prev => `${prev} →dl`)
   }
 
   async function start() {
