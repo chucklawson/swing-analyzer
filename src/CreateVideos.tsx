@@ -419,7 +419,7 @@ export default function CreateVideos() {
           else if (mime.includes('mp4'))    blob = await mp4NormalizeTimecodes(blob)
           const filename = makeFilename(ext)
           saveClip(blob, filename)
-          showReview(blob, filename)
+          showReview(blob)
         })
       } else {
         setStatus('listening')
@@ -432,7 +432,7 @@ export default function CreateVideos() {
     setTimeout(() => { if (rec.state === 'recording') rec.stop() }, 250)
   }
 
-  function showReview(blob: Blob, downloadName?: string) {
+  function showReview(blob: Blob) {
     const rev = reviewRef.current
     if (!rev) {
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder(); return
@@ -458,7 +458,6 @@ export default function CreateVideos() {
       if (videoRef.current) videoRef.current.style.visibility = ''
       setReviewTap(false)
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder()
-      if (downloadName) triggerDownload(blob, downloadName)
     }
 
     if (videoRef.current) videoRef.current.style.visibility = 'hidden'
