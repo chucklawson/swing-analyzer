@@ -552,6 +552,19 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     } catch { /* non-fatal */ }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function exportOpfsClip(handle: any, name: string) {
+    const file = await handle.getFile()
+    const url = URL.createObjectURL(file)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+  }
+
   function togglePlay() {
     if (videoRef.current?.paused) play(); else pause()
   }
@@ -938,6 +951,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                   >
                     <span className="text-white font-medium">{formatClipName(clip.name)}</span>
                     <span className="text-gray-500 text-xs block mt-0.5">{clip.name}</span>
+                  </button>
+                  <button
+                    onClick={() => exportOpfsClip(clip.handle, clip.name)}
+                    className="text-gray-600 hover:text-blue-400 text-lg leading-none px-1 transition-colors"
+                    title="Save to Files"
+                  >
+                    ⬇
                   </button>
                   <button
                     onClick={() => deleteOpfsClip(clip.name)}
