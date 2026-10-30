@@ -233,20 +233,21 @@ export default function CreateVideos() {
       } catch { /* non-fatal */ }
     }
 
-    // Desktop FS API — if a folder is set, save silently there and skip the download
+    // Desktop FS API — if a folder is set, save silently there (no download dialog)
     if (dirHandleRef.current) {
       try {
         const fh = await dirHandleRef.current.getFileHandle(name, { create: true })
         const writable = await fh.createWritable()
         await writable.write(blob)
         await writable.close()
-        setClipInfo(prev => `${prev} →saved`)
-        return
-      } catch { /* fall through */ }
+      } catch { /* non-fatal */ }
     }
+  }
 
-    // Anchor download — on iOS this opens the "Save to Files" sheet with the
-    // auto-generated filename already filled in; on desktop it saves to Downloads.
+  // Trigger a "Save to Files" sheet on iOS (or Downloads on desktop).
+  // Must NOT be called while a review video is loading — iOS cancels the
+  // media load if a download is initiated at the same time (err:4).
+  function triggerDownload(blob: Blob, name: string) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -255,7 +256,6 @@ export default function CreateVideos() {
     a.click()
     document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(url), 2000)
-    setClipInfo(prev => `${prev} →saved`)
   }
 
   async function start() {
@@ -408,7 +408,7 @@ export default function CreateVideos() {
       if (!streamRef.current) { cooldownRef.current = false; return }
 
       const mime = mimeRef.current || (isIOS ? 'video/mp4' : 'video/webm')
-      setClipInfo(`init:${init ? '✓' : '✗'} chunks:${clipChunks.length} ${mime}`)
+      setClipInfo(`init:${init ? '✓' : '✗'} chunks:${clipChunks.length}`)
 
       if (init && clipChunks.length > 0) {
         const ext = mime.includes('mp4') ? 'mp4' : 'webm'
@@ -417,8 +417,9 @@ export default function CreateVideos() {
           let blob = new Blob([initData, ...clipChunks.map(c => c.data)], { type: mime })
           if (mime.startsWith('video/webm')) blob = await webmNormalizeTimecodes(blob)
           else if (mime.includes('mp4'))    blob = await mp4NormalizeTimecodes(blob)
-          saveClip(blob, makeFilename(ext))
-          showReview(blob)
+          const filename = makeFilename(ext)
+          saveClip(blob, filename)
+          showReview(blob, filename)
         })
       } else {
         setStatus('listening')
@@ -431,7 +432,7 @@ export default function CreateVideos() {
     setTimeout(() => { if (rec.state === 'recording') rec.stop() }, 250)
   }
 
-  function showReview(blob: Blob) {
+  function showReview(blob: Blob, downloadName?: string) {
     const rev = reviewRef.current
     if (!rev) {
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder(); return
@@ -457,6 +458,10 @@ export default function CreateVideos() {
       if (videoRef.current) videoRef.current.style.visibility = ''
       setReviewTap(false)
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder()
+      // Trigger Files download after review so the a.click() doesn't interfere
+      // with the media load (iOS cancels blob URL playback if a download fires
+      // while the video element is still loading — err:4).
+      if (downloadName) triggerDownload(blob, downloadName)
     }
 
     if (videoRef.current) videoRef.current.style.visibility = 'hidden'
