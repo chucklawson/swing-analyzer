@@ -458,9 +458,6 @@ export default function CreateVideos() {
       if (videoRef.current) videoRef.current.style.visibility = ''
       setReviewTap(false)
       setStatus('listening'); cooldownRef.current = false; startRollingRecorder()
-      // Trigger Files download after review so the a.click() doesn't interfere
-      // with the media load (iOS cancels blob URL playback if a download fires
-      // while the video element is still loading — err:4).
       if (downloadName) triggerDownload(blob, downloadName)
     }
 
