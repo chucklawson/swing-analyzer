@@ -244,19 +244,6 @@ export default function CreateVideos() {
     }
   }
 
-  // Trigger a "Save to Files" sheet on iOS (or Downloads on desktop).
-  // Must NOT be called while a review video is loading — iOS cancels the
-  // media load if a download is initiated at the same time (err:4).
-  function triggerDownload(blob: Blob, name: string) {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    setTimeout(() => URL.revokeObjectURL(url), 2000)
-  }
 
   async function start() {
     setStatus('starting')
