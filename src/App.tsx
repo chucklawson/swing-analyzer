@@ -7,6 +7,16 @@ const FRAME_RATE = 30
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const hasOpfs = 'storage' in navigator && typeof (navigator.storage as any).getDirectory === 'function'
+
+function formatClipName(name: string): string {
+  const m = name.match(/^(\d{4})(\d{2})(\d{2})-(\d+)-A\.(mp4|webm)$/)
+  if (!m) return name
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${months[parseInt(m[2])-1]} ${parseInt(m[3])} · Clip ${m[4]}`
+}
+
 const PALETTE = ['#ffffff', '#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#a855f7']
 
 const FPS_PRESETS = [30, 15, 10, 5, 2, 1]
@@ -131,6 +141,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [hasStartPoint, setHasStartPoint] = useState(false)
   const [playbackFPS, setPlaybackFPS] = useState(FRAME_RATE)
   const [poseStatus, setPoseStatus] = useState<'idle' | 'loading' | 'detected' | 'none'>('idle')
+  const [showClips, setShowClips] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [opfsClips, setOpfsClips] = useState<{ name: string; handle: any }[]>([])
+  const [clipsLoading, setClipsLoading] = useState(false)
   const poseResultRef = useRef<{ x: number; y: number; z: number }[] | null>(null)
   const poseActiveRef = useRef(false)
   const animFrameRef = useRef<number | null>(null)
@@ -496,6 +510,48 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     setDrawMode(false)
   }
 
+  async function openClipBrowser() {
+    setShowClips(true)
+    setClipsLoading(true)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const root = await (navigator.storage as any).getDirectory()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const clips: { name: string; handle: any }[] = []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for await (const [name, handle] of (root as any).entries()) {
+        if (handle.kind === 'file' && /^\d{8}-\d+-A\.(mp4|webm)$/.test(name)) {
+          clips.push({ name, handle })
+        }
+      }
+      clips.sort((a, b) => b.name.localeCompare(a.name))
+      setOpfsClips(clips)
+    } catch { setOpfsClips([]) }
+    setClipsLoading(false)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function loadOpfsClip(handle: any) {
+    const file = await handle.getFile()
+    if (videoUrl) URL.revokeObjectURL(videoUrl)
+    setVideoUrl(URL.createObjectURL(file))
+    setVideoName(file.name)
+    setIsPaused(true)
+    setZoom(null)
+    setZoomMode(false)
+    setDrawMode(false)
+    setShowClips(false)
+  }
+
+  async function deleteOpfsClip(name: string) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const root = await (navigator.storage as any).getDirectory()
+      await root.removeEntry(name)
+      setOpfsClips(prev => prev.filter(c => c.name !== name))
+    } catch { /* non-fatal */ }
+  }
+
   function togglePlay() {
     if (videoRef.current?.paused) play(); else pause()
   }
@@ -634,12 +690,22 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     <div className="flex flex-col items-center gap-4 flex-1 min-w-0">
       <span className="text-lg font-medium text-gray-300">{label}</span>
 
-      <button
-        onClick={() => inputRef.current?.click()}
-        className="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm"
-      >
-        {videoUrl ? 'Select Different Video' : 'Select Video'}
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={() => inputRef.current?.click()}
+          className="px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm"
+        >
+          {videoUrl ? 'Change Video' : 'Select Video'}
+        </button>
+        {hasOpfs && (
+          <button
+            onClick={openClipBrowser}
+            className="px-5 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-medium transition-colors text-sm"
+          >
+            My Clips
+          </button>
+        )}
+      </div>
 
       <input
         ref={inputRef}
@@ -842,6 +908,48 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       ) : (
         <div className="w-full aspect-video rounded-xl bg-gray-900 flex items-center justify-center">
           <p className="text-gray-600">No video selected</p>
+        </div>
+      )}
+
+      {showClips && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center"
+          onClick={() => setShowClips(false)}
+        >
+          <div
+            className="bg-gray-900 rounded-t-2xl w-full max-w-lg flex flex-col"
+            style={{ maxHeight: '70vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 shrink-0">
+              <h3 className="text-lg font-semibold text-white">Saved Clips</h3>
+              <button onClick={() => setShowClips(false)} className="text-gray-400 hover:text-white text-2xl leading-none">✕</button>
+            </div>
+            <div className="overflow-y-auto flex flex-col gap-2 p-4 pb-8">
+              {clipsLoading ? (
+                <p className="text-gray-400 text-center py-8">Loading…</p>
+              ) : opfsClips.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No saved clips yet</p>
+              ) : opfsClips.map(clip => (
+                <div key={clip.name} className="flex items-center gap-2 bg-gray-800 rounded-lg px-4 py-3">
+                  <button
+                    className="flex-1 text-left"
+                    onClick={() => loadOpfsClip(clip.handle)}
+                  >
+                    <span className="text-white font-medium">{formatClipName(clip.name)}</span>
+                    <span className="text-gray-500 text-xs block mt-0.5">{clip.name}</span>
+                  </button>
+                  <button
+                    onClick={() => deleteOpfsClip(clip.name)}
+                    className="text-gray-600 hover:text-red-400 text-lg leading-none px-1 transition-colors"
+                    title="Delete clip"
+                  >
+                    🗑
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
