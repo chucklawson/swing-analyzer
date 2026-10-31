@@ -11,10 +11,10 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 const hasOpfs = 'storage' in navigator && typeof (navigator.storage as any).getDirectory === 'function'
 
 function formatClipName(name: string): string {
-  const m = name.match(/^(\d{4})(\d{2})(\d{2})-(\d+)-A\.(mp4|webm)$/)
+  const m = name.match(/^(\d{4})(\d{2})(\d{2})-(\d+)-(\d{2})(\d{2})(\d{2})-A\.(mp4|webm)$/)
   if (!m) return name
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${months[parseInt(m[2])-1]} ${parseInt(m[3])} · Clip ${m[4]}`
+  return `${months[parseInt(m[2])-1]} ${parseInt(m[3])} · Clip ${m[4]} · ${m[5]}:${m[6]}:${m[7]}`
 }
 
 const PALETTE = ['#ffffff', '#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#a855f7']
@@ -141,6 +141,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [hasStartPoint, setHasStartPoint] = useState(false)
   const [playbackFPS, setPlaybackFPS] = useState(FRAME_RATE)
   const [poseStatus, setPoseStatus] = useState<'idle' | 'loading' | 'detected' | 'none'>('idle')
+  const [fullscreen, setFullscreen] = useState(false)
   const [showClips, setShowClips] = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [opfsClips, setOpfsClips] = useState<{ name: string; handle: any }[]>([])
@@ -522,7 +523,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       const clips: { name: string; handle: any }[] = []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for await (const [name, handle] of (root as any).entries()) {
-        if (handle.kind === 'file' && /^\d{8}-\d+-A\.(mp4|webm)$/.test(name)) {
+        if (handle.kind === 'file' && /^\d{8}-\d+-\d{6}-A\.(mp4|webm)$/.test(name)) {
           clips.push({ name, handle })
         }
       }
@@ -764,7 +765,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const selectionHeight = drag ? Math.abs(drag.currentY - drag.startY) : 0
 
   return (
-    <div className="flex flex-col items-center gap-4 flex-1 min-w-0">
+    <div className={fullscreen
+      ? 'fixed inset-0 z-40 bg-gray-950 flex flex-col items-center gap-4 overflow-y-auto p-4'
+      : 'flex flex-col items-center gap-4 flex-1 min-w-0'
+    }>
       <span className="text-lg font-medium text-gray-300">{label}</span>
 
       <div className="flex gap-2">
@@ -838,6 +842,23 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                   {hasStartPoint ? 'Select ending point' : 'Select starting point'}
                 </div>
               )}
+
+              {/* Fullscreen toggle — bottom-right corner */}
+              <button
+                onClick={() => setFullscreen(f => !f)}
+                className="absolute bottom-3 right-3 w-8 h-8 flex items-center justify-center bg-black/60 hover:bg-black/80 rounded-md z-10 transition-colors"
+                title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              >
+                {fullscreen ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                    <path d="M9 9H3V7h4V3h2v6zm6 0V3h2v4h4v2h-6zm-6 6H3v-2h6v6H7v-4zm8 4v-6h6v2h-4v4h-2z"/>
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                    <path d="M3 3h6v2H5v4H3V3zm12 0h6v6h-2V5h-4V3zM3 15h2v4h4v2H3v-6zm16 4h-4v2h6v-6h-2v4z"/>
+                  </svg>
+                )}
+              </button>
 
               {/* Zoom selection overlay — desktop rubber-band only, iOS uses pinch */}
               {zoomMode && !zoom && !isIOS && (

@@ -27,10 +27,11 @@ function makeFilename(ext: string) {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
   const date = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`
+  const time = `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
   const key   = `clip-count-${date}`
   const count = (parseInt(localStorage.getItem(key) ?? '0') + 1)
   localStorage.setItem(key, String(count))
-  return `${date}-${count}-A.${ext}`
+  return `${date}-${count}-${time}-A.${ext}`
 }
 
 function pickMime() {
@@ -695,9 +696,7 @@ export default function CreateVideos() {
           <p className="text-gray-600 text-xs text-center">
             Triggers when level exceeds threshold · 1s pre-roll · 3s clip
           </p>
-          {clipInfo && (
-            <p className="text-yellow-500 text-xs text-center font-mono">{clipInfo}</p>
-          )}
+          {/* debug: {clipInfo && <p className="text-yellow-500 text-xs text-center font-mono">{clipInfo}</p>} */}
         </div>
       )}
 
