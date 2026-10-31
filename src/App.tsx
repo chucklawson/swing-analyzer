@@ -145,6 +145,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [opfsClips, setOpfsClips] = useState<{ name: string; handle: any }[]>([])
   const [clipsLoading, setClipsLoading] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set())
   const poseResultRef = useRef<{ x: number; y: number; z: number }[] | null>(null)
   const poseActiveRef = useRef(false)
   const animFrameRef = useRef<number | null>(null)
@@ -552,17 +554,79 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     } catch { /* non-fatal */ }
   }
 
+  function closeClipBrowser() {
+    setShowClips(false)
+    setSelectMode(false)
+    setSelectedClips(new Set())
+  }
+
+  function toggleSelectMode() {
+    setSelectMode(m => !m)
+    setSelectedClips(new Set())
+  }
+
+  function toggleClipSelection(name: string) {
+    setSelectedClips(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name); else next.add(name)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelectedClips(
+      selectedClips.size === opfsClips.length
+        ? new Set()
+        : new Set(opfsClips.map(c => c.name))
+    )
+  }
+
+  async function deleteSelectedClips() {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const root = await (navigator.storage as any).getDirectory()
+      for (const name of selectedClips) {
+        try { await root.removeEntry(name) } catch { /* non-fatal */ }
+      }
+      setOpfsClips(prev => prev.filter(c => !selectedClips.has(c.name)))
+      setSelectedClips(new Set())
+      setSelectMode(false)
+    } catch { /* non-fatal */ }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function exportOpfsClip(handle: any, name: string) {
-    const file = await handle.getFile()
+    const raw = await handle.getFile()
+    const file = new File([raw], name, { type: raw.type || 'video/mp4' })
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); return } catch { /* cancelled */ }
+    }
+    // Fallback: anchor download
     const url = URL.createObjectURL(file)
     const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    a.href = url; a.download = name
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(url), 2000)
+  }
+
+  async function exportAllOpfsClips() {
+    if (opfsClips.length === 0) return
+    const files = await Promise.all(opfsClips.map(async clip => {
+      const raw = await clip.handle.getFile()
+      return new File([raw], clip.name, { type: raw.type || 'video/mp4' })
+    }))
+    if (navigator.share && navigator.canShare?.({ files })) {
+      try { await navigator.share({ files }); return } catch { /* cancelled */ }
+    }
+    // Fallback: sequential anchor downloads
+    for (const file of files) {
+      const url = URL.createObjectURL(file)
+      const a = document.createElement('a')
+      a.href = url; a.download = file.name
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 2000)
+      await new Promise(r => setTimeout(r, 500))
+    }
   }
 
   function togglePlay() {
@@ -927,46 +991,81 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       {showClips && (
         <div
           className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center"
-          onClick={() => setShowClips(false)}
+          onClick={closeClipBrowser}
         >
           <div
             className="bg-gray-900 rounded-t-2xl w-full max-w-lg flex flex-col"
             style={{ maxHeight: '70vh' }}
             onClick={e => e.stopPropagation()}
           >
+            {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 shrink-0">
-              <h3 className="text-lg font-semibold text-white">Saved Clips</h3>
-              <button onClick={() => setShowClips(false)} className="text-gray-400 hover:text-white text-2xl leading-none">✕</button>
+              {selectMode ? (
+                <>
+                  <span className="text-white font-medium">{selectedClips.size} selected</span>
+                  <div className="flex items-center gap-3">
+                    <button onClick={toggleSelectAll} className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
+                      {selectedClips.size === opfsClips.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                    {selectedClips.size > 0 && (
+                      <button onClick={deleteSelectedClips} className="px-3 py-1 rounded-lg bg-red-700 hover:bg-red-600 text-white text-sm font-medium transition-colors">
+                        Delete ({selectedClips.size})
+                      </button>
+                    )}
+                    <button onClick={toggleSelectMode} className="text-gray-400 hover:text-white text-sm transition-colors">Done</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-semibold text-white">Saved Clips</h3>
+                  <div className="flex items-center gap-3">
+                    {opfsClips.length > 0 && (
+                      <>
+                        <button onClick={exportAllOpfsClips} className="px-3 py-1 rounded-lg bg-blue-700 hover:bg-blue-600 text-white text-sm font-medium transition-colors">Export All</button>
+                        <button onClick={toggleSelectMode} className="px-3 py-1 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium transition-colors">Select</button>
+                      </>
+                    )}
+                    <button onClick={closeClipBrowser} className="text-gray-400 hover:text-white text-2xl leading-none">✕</button>
+                  </div>
+                </>
+              )}
             </div>
+
+            {/* Clip list */}
             <div className="overflow-y-auto flex flex-col gap-2 p-4 pb-8">
               {clipsLoading ? (
                 <p className="text-gray-400 text-center py-8">Loading…</p>
               ) : opfsClips.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No saved clips yet</p>
               ) : opfsClips.map(clip => (
-                <div key={clip.name} className="flex items-center gap-2 bg-gray-800 rounded-lg px-4 py-3">
+                selectMode ? (
                   <button
-                    className="flex-1 text-left"
-                    onClick={() => loadOpfsClip(clip.handle)}
+                    key={clip.name}
+                    onClick={() => toggleClipSelection(clip.name)}
+                    className="w-full flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-3 transition-colors"
                   >
-                    <span className="text-white font-medium">{formatClipName(clip.name)}</span>
-                    <span className="text-gray-500 text-xs block mt-0.5">{clip.name}</span>
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${selectedClips.has(clip.name) ? 'bg-blue-500 border-blue-500' : 'border-gray-500'}`}>
+                      {selectedClips.has(clip.name) && (
+                        <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="1,5 4,8 11,1"/>
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <span className="text-white font-medium">{formatClipName(clip.name)}</span>
+                      <span className="text-gray-500 text-xs block mt-0.5">{clip.name}</span>
+                    </div>
                   </button>
-                  <button
-                    onClick={() => exportOpfsClip(clip.handle, clip.name)}
-                    className="text-gray-600 hover:text-blue-400 text-lg leading-none px-1 transition-colors"
-                    title="Save to Files"
-                  >
-                    ⬇
-                  </button>
-                  <button
-                    onClick={() => deleteOpfsClip(clip.name)}
-                    className="text-gray-600 hover:text-red-400 text-lg leading-none px-1 transition-colors"
-                    title="Delete clip"
-                  >
-                    🗑
-                  </button>
-                </div>
+                ) : (
+                  <div key={clip.name} className="flex items-center gap-2 bg-gray-800 rounded-lg px-4 py-3">
+                    <button className="flex-1 text-left" onClick={() => loadOpfsClip(clip.handle)}>
+                      <span className="text-white font-medium">{formatClipName(clip.name)}</span>
+                      <span className="text-gray-500 text-xs block mt-0.5">{clip.name}</span>
+                    </button>
+                    <button onClick={() => exportOpfsClip(clip.handle, clip.name)} className="text-gray-600 hover:text-blue-400 text-lg leading-none px-1 transition-colors" title="Save to Files">⬇</button>
+                    <button onClick={() => deleteOpfsClip(clip.name)} className="text-gray-600 hover:text-red-400 text-lg leading-none px-1 transition-colors" title="Delete">🗑</button>
+                  </div>
+                )
               ))}
             </div>
           </div>
