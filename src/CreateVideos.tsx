@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-const PRE_ROLL_MS         = 1000
-const POST_ROLL_MS        = 3000
+const PRE_ROLL_MS         = 1500
+const POST_ROLL_MS        = 2000
 const CHUNK_MS            = 100
 const BUFFER_MS           = 1500
 // Restart recorder only after each clip — keeps the init chunk close in time
