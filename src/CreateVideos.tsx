@@ -202,7 +202,6 @@ export default function CreateVideos() {
   const [facing,     setFacing]     = useState<'environment' | 'user'>('environment')
   const [saveFolder, setSaveFolder] = useState<string | null>(null)
   const [error,      setError]      = useState<string | null>(null)
-  const [clipInfo,   setClipInfo]   = useState<string>('')
   const [reviewTap,  setReviewTap]  = useState(false)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -396,7 +395,6 @@ export default function CreateVideos() {
       if (!streamRef.current) { cooldownRef.current = false; return }
 
       const mime = mimeRef.current || (isIOS ? 'video/mp4' : 'video/webm')
-      setClipInfo(`init:${init ? '✓' : '✗'} chunks:${clipChunks.length}`)
 
       if (init && clipChunks.length > 0) {
         const ext = mime.includes('mp4') ? 'mp4' : 'webm'
@@ -476,10 +474,7 @@ export default function CreateVideos() {
     rev.oncanplay    = tryPlay
     rev.onloadeddata = tryPlay
 
-    // Append media error code to debug line so we can see why iOS rejects the blob
     rev.onerror = () => {
-      const code = rev.error?.code ?? 0
-      setClipInfo(prev => `${prev} err:${code}`)
       setReviewTap(true)
     }
 
