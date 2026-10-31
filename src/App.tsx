@@ -160,7 +160,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const drawStartRef = useRef<DrawStart | null>(null)
   const zoomModeRef = useRef(zoomMode)
   const currentZoomRef = useRef(zoom)
+  const drawModeRef = useRef(drawMode)
   const pinchRef = useRef<{ startDist: number; startScale: number; originX: number; originY: number } | null>(null)
+  const panStartRef = useRef<{ startX: number; startY: number; startOriginX: number; startOriginY: number } | null>(null)
 
   function redrawCanvas() {
     const canvas = canvasRef.current
@@ -352,6 +354,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
 
   useEffect(() => { zoomModeRef.current = zoomMode }, [zoomMode])
   useEffect(() => { currentZoomRef.current = zoom }, [zoom])
+  useEffect(() => { drawModeRef.current = drawMode }, [drawMode])
   useEffect(() => {
     const video = videoRef.current
     if (video) video.playbackRate = playbackFPS / FRAME_RATE
@@ -403,15 +406,52 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       if (pinchRef.current) { setZoomMode(false); pinchRef.current = null }
     }
 
+    function onPanTouchStart(e: TouchEvent) {
+      if (!currentZoomRef.current || drawModeRef.current || e.touches.length !== 1) return
+      e.preventDefault()
+      panStartRef.current = {
+        startX: e.touches[0].clientX,
+        startY: e.touches[0].clientY,
+        startOriginX: currentZoomRef.current.originX,
+        startOriginY: currentZoomRef.current.originY,
+      }
+    }
+
+    function onPanTouchMove(e: TouchEvent) {
+      if (!panStartRef.current || !currentZoomRef.current || e.touches.length !== 1) return
+      e.preventDefault()
+      const z = currentZoomRef.current
+      const w = container.offsetWidth
+      const h = container.offsetHeight
+      const dx = e.touches[0].clientX - panStartRef.current.startX
+      const dy = e.touches[0].clientY - panStartRef.current.startY
+      const divisor = z.scale - 1
+      const newOriginX = Math.max(0, Math.min(w, panStartRef.current.startOriginX - dx / divisor))
+      const newOriginY = Math.max(0, Math.min(h, panStartRef.current.startOriginY - dy / divisor))
+      setZoom({ scale: z.scale, originX: newOriginX, originY: newOriginY })
+    }
+
+    function onPanTouchEnd() {
+      panStartRef.current = null
+    }
+
     container.addEventListener('touchstart', onPinchStart, { passive: false })
     container.addEventListener('touchmove', onPinchMove, { passive: false })
     container.addEventListener('touchend', onPinchEnd)
+    container.addEventListener('touchstart', onPanTouchStart, { passive: false })
+    container.addEventListener('touchmove', onPanTouchMove, { passive: false })
+    container.addEventListener('touchend', onPanTouchEnd)
+    container.addEventListener('touchcancel', onPanTouchEnd)
 
     return () => {
       observer.disconnect()
       container.removeEventListener('touchstart', onPinchStart)
       container.removeEventListener('touchmove', onPinchMove)
       container.removeEventListener('touchend', onPinchEnd)
+      container.removeEventListener('touchstart', onPanTouchStart)
+      container.removeEventListener('touchmove', onPanTouchMove)
+      container.removeEventListener('touchend', onPanTouchEnd)
+      container.removeEventListener('touchcancel', onPanTouchEnd)
     }
   }, [videoUrl])
 
@@ -799,7 +839,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       {videoUrl ? (
         <>
           <div className="flex-1 flex items-end w-full">
-            <div ref={containerRef} className="relative w-full overflow-hidden rounded-xl" style={{ touchAction: (zoomMode && isIOS) ? 'none' : undefined }}>
+            <div ref={containerRef} className="relative w-full overflow-hidden rounded-xl" style={{ touchAction: ((zoomMode && isIOS) || !!zoom) ? 'none' : undefined }}>
               <video
                 ref={videoRef}
                 key={videoUrl}
@@ -869,6 +909,35 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                   onMouseMove={handleZoomMouseMove}
                   onMouseUp={handleZoomMouseUp}
                   onMouseLeave={() => setDrag(null)}
+                />
+              )}
+
+              {/* Pan overlay — drag to scroll when zoomed */}
+              {zoom && !drawMode && !zoomMode && !isIOS && (
+                <div
+                  className="absolute inset-0 cursor-grab active:cursor-grabbing"
+                  onMouseDown={(e) => {
+                    panStartRef.current = {
+                      startX: e.clientX, startY: e.clientY,
+                      startOriginX: zoom.originX, startOriginY: zoom.originY,
+                    }
+                  }}
+                  onMouseMove={(e) => {
+                    if (!panStartRef.current) return
+                    const s = zoom.scale
+                    const w = containerRef.current?.offsetWidth ?? 1
+                    const h = containerRef.current?.offsetHeight ?? 1
+                    const dx = e.clientX - panStartRef.current.startX
+                    const dy = e.clientY - panStartRef.current.startY
+                    const divisor = s - 1
+                    setZoom({
+                      scale: s,
+                      originX: Math.max(0, Math.min(w, panStartRef.current.startOriginX - dx / divisor)),
+                      originY: Math.max(0, Math.min(h, panStartRef.current.startOriginY - dy / divisor)),
+                    })
+                  }}
+                  onMouseUp={() => { panStartRef.current = null }}
+                  onMouseLeave={() => { panStartRef.current = null }}
                 />
               )}
 
