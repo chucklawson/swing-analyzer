@@ -408,6 +408,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
 
     function onPanTouchStart(e: TouchEvent) {
       if (!currentZoomRef.current || drawModeRef.current || e.touches.length !== 1) return
+      if ((e.target as Element).closest('button')) return
       e.preventDefault()
       panStartRef.current = {
         startX: e.touches[0].clientX,
@@ -886,7 +887,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
               {/* Fullscreen toggle — bottom-right corner */}
               <button
                 onClick={() => setFullscreen(f => !f)}
-                className="absolute bottom-3 right-3 w-8 h-8 flex items-center justify-center bg-black/60 hover:bg-black/80 rounded-md z-10 transition-colors"
+                className="absolute bottom-3 right-3 w-8 h-8 flex items-center justify-center bg-black/60 hover:bg-black/80 rounded-md z-20 transition-colors"
                 title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
               >
                 {fullscreen ? (
