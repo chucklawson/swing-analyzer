@@ -707,8 +707,10 @@ export default function CreateVideos() {
           />
         )}
 
-        {/* overlay layer — must sit above both video elements */}
-        <div className="absolute inset-0" style={{ zIndex: 2, pointerEvents: 'none' }}>
+        {/* overlay layer — zIndex 5, above ROI canvas (3) and DebugPanel (4) so status badges
+             and flip button remain tappable. Parent has pointerEvents:none so it doesn't
+             block ROI drawing; each interactive child re-enables it individually. */}
+        <div className="absolute inset-0" style={{ zIndex: 5, pointerEvents: 'none' }}>
           {!active && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70" style={{ pointerEvents: 'auto' }}>
               <p className="text-gray-500">Camera off</p>

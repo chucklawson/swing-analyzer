@@ -1,17 +1,28 @@
-# Swing Analyzer
+# Oily Swing — Swing Analyzer
 
-A PWA for recording and analyzing golf swings on iPhone and iPad. Add it to your Home Screen from Safari for a full-screen experience without the browser chrome.
+A PWA for recording and analyzing golf swings on iPhone and iPad. Add it to your Home Screen from Safari for a full-screen, no-browser-chrome experience.
+
+---
+
+## Home screen
+
+When you open the app you land on the **Oily Swing** home screen. Two large buttons take you to the two main areas:
+
+| Button | Where it goes |
+|---|---|
+| **Analyze My Swing →** | The dual-video analyzer (compare two clips side by side) |
+| **Create Videos →** | The camera recording screen |
 
 ---
 
 ## Quick start
 
-1. Open the app and tap **Create Videos** to record clips.
+1. From the home screen tap **Create Videos →**.
 2. Tap **Start Camera** and point the phone at your swing area.
 3. Draw a box around the **ball and club head region** by dragging on the video.
 4. Tap **Calibrate** (optional but recommended) and hold still for 3 seconds.
 5. Take your swing — the app saves a clip automatically.
-6. Tap **Analyzer** from the home screen to load and review clips side by side.
+6. Return home and tap **Analyze My Swing →** to load and review clips side by side.
 
 ---
 
