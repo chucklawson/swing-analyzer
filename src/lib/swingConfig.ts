@@ -20,6 +20,7 @@ export interface SwingConfig {
   audioLookbackMs: number      // how far back to look for motion when audio impact fires
   cooldownMs: number           // ms before fusion can fire again
   motionOnlyMode: boolean      // save clips on motion alone (default off)
+  audioOnlyMode: boolean       // save clips on audio alone, no motion check (diagnostic)
   // roi
   roi: NormalizedRect
   // ui
@@ -39,6 +40,7 @@ export const DEFAULT_CONFIG: SwingConfig = {
   audioLookbackMs: 2000,
   cooldownMs: 7000,
   motionOnlyMode: false,
+  audioOnlyMode: false,
   roi: { x: 0.2, y: 0.15, w: 0.6, h: 0.7 },
   showDebugPanel: false,
   traceEnabled: false,
@@ -53,7 +55,7 @@ export function loadConfig(): SwingConfig {
     const saved = JSON.parse(raw) as Partial<SwingConfig>
     // motionOnlyMode is intentionally NOT restored from storage — it always starts
     // false to prevent accidental clips every session if the user forgot they'd set it.
-    return { ...DEFAULT_CONFIG, ...saved, motionOnlyMode: false }
+    return { ...DEFAULT_CONFIG, ...saved, motionOnlyMode: false, audioOnlyMode: false }
   } catch {
     return { ...DEFAULT_CONFIG }
   }

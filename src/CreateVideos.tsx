@@ -365,6 +365,7 @@ export default function CreateVideos() {
         audioLookbackMs: config.audioLookbackMs,
         cooldownMs:      config.cooldownMs,
         motionOnlyMode:  config.motionOnlyMode,
+        audioOnlyMode:   config.audioOnlyMode,
       })
       fusion.onSwing((audioTs) => trigger(audioTs))
       fusion.onRejected((reason, ts) => {
@@ -1148,6 +1149,20 @@ export default function CreateVideos() {
               className="accent-green-400"
             />
             <span className="text-gray-400 text-xs">Record practice swings (motion only, no audio required)</span>
+          </label>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={config.audioOnlyMode}
+              onChange={e => {
+                const v = e.target.checked
+                setConfig(prev => ({ ...prev, audioOnlyMode: v }))
+                swingFusionRef.current?.updateConfig({ audioOnlyMode: v })
+              }}
+              className="accent-yellow-400"
+            />
+            <span className="text-gray-400 text-xs">Audio trigger only — ignore motion (diagnostic)</span>
           </label>
 
           <p className="text-gray-600 text-xs text-center">
