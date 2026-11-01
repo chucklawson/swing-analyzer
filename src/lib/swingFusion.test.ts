@@ -1,0 +1,176 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { SwingFusion, type RejectionReason, type SwingFusionConfig } from './swingFusion.ts'
+
+function makeFusion(overrides: Partial<SwingFusionConfig> = {}) {
+  return new SwingFusion({
+    fusionWindowMs: 400,
+    cooldownMs: 3000,
+    motionOnlyMode: false,
+    ...overrides,
+  })
+}
+
+describe('SwingFusion', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('fires when motion precedes audio within window', () => {
+    const f = makeFusion()
+    const swings: number[] = []
+    f.onSwing(ts => swings.push(ts))
+
+    const motionTs = 1000
+    const audioTs  = 1300  // 300ms gap — within 400ms window
+    f.feedMotionSpike(motionTs)
+    f.feedAudioImpact(audioTs, 50)
+    expect(swings).toHaveLength(1)
+    expect(swings[0]).toBe(audioTs)
+  })
+
+  it('uses audio timestamp (not motion timestamp) for the swing event', () => {
+    const f = makeFusion()
+    const swings: number[] = []
+    f.onSwing(ts => swings.push(ts))
+
+    f.feedMotionSpike(1000)
+    f.feedAudioImpact(1250, 60)
+    expect(swings[0]).toBe(1250)
+  })
+
+  it('rejects audio-only (no preceding motion)', () => {
+    const f = makeFusion()
+    const rejections: RejectionReason[] = []
+    f.onRejected(r => rejections.push(r))
+
+    f.feedAudioImpact(1000, 50)
+    expect(rejections).toContain('audio-only')
+    expect(rejections).not.toContain('cooldown')
+  })
+
+  it('rejects when motion spike is too old (gap > fusionWindowMs)', () => {
+    const f = makeFusion({ fusionWindowMs: 400 })
+    const rejections: RejectionReason[] = []
+    f.onRejected(r => rejections.push(r))
+    const swings: number[] = []
+    f.onSwing(() => swings.push(1))
+
+    f.feedMotionSpike(1000)
+    f.feedAudioImpact(1500, 50)  // 500ms gap > 400ms
+    expect(swings).toHaveLength(0)
+    expect(rejections).toContain('audio-only')
+  })
+
+  it('rejects when audio comes more than 50ms before motion (ordering)', () => {
+    const f = makeFusion()
+    const rejections: RejectionReason[] = []
+    f.onRejected(r => rejections.push(r))
+
+    // Motion at 1200, audio at 1000: audio is 200ms before motion
+    f.feedMotionSpike(1200)
+    f.feedAudioImpact(1000, 50)
+    expect(rejections).toContain('ordering')
+  })
+
+  it('blocks second fire during cooldown', () => {
+    const f = makeFusion({ cooldownMs: 3000 })
+    const swings: number[] = []
+    const rejections: RejectionReason[] = []
+    f.onSwing(() => swings.push(1))
+    f.onRejected(r => rejections.push(r))
+
+    // First swing fires
+    f.feedMotionSpike(1000)
+    f.feedAudioImpact(1200, 50)
+    expect(swings).toHaveLength(1)
+
+    // Second attempt during cooldown is rejected
+    f.feedMotionSpike(2000)
+    f.feedAudioImpact(2200, 50)
+    expect(swings).toHaveLength(1)
+    expect(rejections).toContain('cooldown')
+  })
+
+  it('fires again after cooldown expires', () => {
+    const f = makeFusion({ cooldownMs: 3000 })
+    const swings: number[] = []
+    f.onSwing(() => swings.push(1))
+
+    f.feedMotionSpike(1000)
+    f.feedAudioImpact(1200, 50)
+    expect(swings).toHaveLength(1)
+
+    // Advance past cooldown
+    vi.advanceTimersByTime(3100)
+
+    f.feedMotionSpike(4500)
+    f.feedAudioImpact(4700, 50)
+    expect(swings).toHaveLength(2)
+  })
+
+  it('calls onCooldownEnd when cooldown expires', () => {
+    const f = makeFusion({ cooldownMs: 3000 })
+    let ended = false
+    f.onCooldownEnd(() => { ended = true })
+
+    f.feedMotionSpike(1000)
+    f.feedAudioImpact(1200, 50)
+    expect(ended).toBe(false)
+
+    vi.advanceTimersByTime(3001)
+    expect(ended).toBe(true)
+  })
+
+  it('motion-only mode fires after window with no audio', () => {
+    const f = makeFusion({ motionOnlyMode: true, fusionWindowMs: 400 })
+    const swings: number[] = []
+    f.onSwing(() => swings.push(1))
+
+    f.feedMotionSpike(1000)
+    expect(swings).toHaveLength(0)
+
+    vi.advanceTimersByTime(500)  // > 400ms + 50ms buffer
+    expect(swings).toHaveLength(1)
+  })
+
+  it('motion-only mode does NOT double-fire if audio also arrives', () => {
+    const f = makeFusion({ motionOnlyMode: true, fusionWindowMs: 400 })
+    const swings: number[] = []
+    f.onSwing(() => swings.push(1))
+
+    f.feedMotionSpike(1000)
+    f.feedAudioImpact(1200, 50)  // audio arrives within window → fires immediately
+    expect(swings).toHaveLength(1)
+
+    vi.advanceTimersByTime(500)  // motion-only timer should have been cancelled
+    expect(swings).toHaveLength(1)
+  })
+
+  it('reset clears state and allows immediate re-fire', () => {
+    const f = makeFusion({ cooldownMs: 3000 })
+    const swings: number[] = []
+    f.onSwing(() => swings.push(1))
+
+    f.feedMotionSpike(1000)
+    f.feedAudioImpact(1200, 50)
+    expect(swings).toHaveLength(1)
+
+    f.reset()
+    f.feedMotionSpike(2000)
+    f.feedAudioImpact(2200, 50)
+    expect(swings).toHaveLength(2)
+  })
+
+  it('accepts audio within 50ms before motion (simultaneous tolerance)', () => {
+    const f = makeFusion()
+    const swings: number[] = []
+    const rejections: RejectionReason[] = []
+    f.onSwing(() => swings.push(1))
+    f.onRejected(r => rejections.push(r))
+
+    // Motion at 1000, audio at 995 (5ms before motion — within 50ms tolerance)
+    f.feedMotionSpike(1000)
+    f.feedAudioImpact(995, 50)
+    expect(swings).toHaveLength(1)
+    expect(rejections).not.toContain('ordering')
+  })
+})
