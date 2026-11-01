@@ -32,7 +32,7 @@ const iosBrowser: 'chrome' | 'firefox' | 'edge' | 'safari' = (() => {
 
 interface Chunk { data: Blob; ts: number }
 
-function makeFilename(ext: string) {
+function makeFilename(ext: string, label: 'F' | 'D') {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
   const date = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`
@@ -40,7 +40,7 @@ function makeFilename(ext: string) {
   const key   = `clip-count-${date}`
   const count = (parseInt(localStorage.getItem(key) ?? '0') + 1)
   localStorage.setItem(key, String(count))
-  return `${date}-${count}-${time}-A.${ext}`
+  return `${date}_${time}_${count}_${label}.${ext}`
 }
 
 function pickMime() {
@@ -206,6 +206,7 @@ export default function CreateVideos() {
   const capturingRef      = useRef(false)
   const mimeRef           = useRef('')
   const facingRef         = useRef<'environment' | 'user'>('environment')
+  const isFrontRef        = useRef(false)
 
   const [status,       setStatus]       = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing' | 'calibrating'>('idle')
   const [level,        setLevel]        = useState(0)
@@ -225,6 +226,7 @@ export default function CreateVideos() {
     objectFit: 'cover',
   })
   const [calibResult,  setCalibResult]  = useState<CalibrationResult | null>(null)
+  const [isFront,      setIsFront]      = useState(false)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasFsApi = 'showDirectoryPicker' in (window as any)
@@ -547,7 +549,7 @@ export default function CreateVideos() {
           let blob = new Blob([initData, ...clipChunks.map(c => c.data)], { type: mime })
           if (mime.startsWith('video/webm')) blob = await webmNormalizeTimecodes(blob)
           else if (mime.includes('mp4'))    blob = await mp4NormalizeTimecodes(blob)
-          const filename = makeFilename(ext)
+          const filename = makeFilename(ext, isFrontRef.current ? 'F' : 'D')
           saveClip(blob, filename)
           showReview(blob)
         })
@@ -1010,6 +1012,23 @@ export default function CreateVideos() {
           </button>
         </div>
       )}
+
+      <div className="w-full max-w-2xl flex items-center justify-between">
+        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={isFront}
+            onChange={e => {
+              setIsFront(e.target.checked)
+              isFrontRef.current = e.target.checked
+            }}
+            className="w-4 h-4 accent-green-400 cursor-pointer"
+          />
+          <span className="text-gray-300 text-sm">
+            Front <span className="text-gray-500 text-xs ml-1">(unchecked = Down the line · files saved as …_{isFront ? 'F' : 'D'}.mp4)</span>
+          </span>
+        </label>
+      </div>
 
       <div className="flex gap-3">
         {status === 'idle' || status === 'starting' ? (
