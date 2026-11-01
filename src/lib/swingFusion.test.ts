@@ -173,4 +173,31 @@ describe('SwingFusion', () => {
     expect(swings).toHaveLength(1)
     expect(rejections).not.toContain('ordering')
   })
+
+  it('fires when audio callback arrives before motion callback (bidirectional)', () => {
+    const f = makeFusion({ fusionWindowMs: 400 })
+    const swings: number[] = []
+    const rejections: RejectionReason[] = []
+    f.onSwing(ts => swings.push(ts))
+    f.onRejected(r => rejections.push(r))
+
+    // Audio RAF fires at T=16ms before RVFC fires at T=33ms (typical iOS timing)
+    f.feedAudioImpact(1000, 80)          // rejected: no motion spike yet
+    expect(rejections).toContain('audio-only')
+    expect(swings).toHaveLength(0)
+
+    f.feedMotionSpike(1033)              // follow-through frame 33ms later
+    expect(swings).toHaveLength(1)
+    expect(swings[0]).toBe(1000)         // clip centred on the audio impact timestamp
+  })
+
+  it('does not fire on stale audio when motion arrives outside window (bidirectional)', () => {
+    const f = makeFusion({ fusionWindowMs: 400 })
+    const swings: number[] = []
+    f.onSwing(() => swings.push(1))
+
+    f.feedAudioImpact(1000, 80)   // rejected: no motion
+    f.feedMotionSpike(1500)       // 500ms after audio — outside 400ms window
+    expect(swings).toHaveLength(0)
+  })
 })

@@ -207,6 +207,7 @@ export default function CreateVideos() {
   const mimeRef           = useRef('')
   const facingRef         = useRef<'environment' | 'user'>('environment')
   const isFrontRef        = useRef(false)
+  const roiRef            = useRef<NormalizedRect>(loadConfig().roi)
 
   const [status,       setStatus]       = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing' | 'calibrating'>('idle')
   const [level,        setLevel]        = useState(0)
@@ -232,6 +233,8 @@ export default function CreateVideos() {
   const hasFsApi = 'showDirectoryPicker' in (window as any)
 
   useEffect(() => () => teardown(), [])
+  // Keep roiRef in sync so the motion detector always uses the latest drawn ROI
+  useEffect(() => { roiRef.current = roi }, [roi])
   // Persist config when it changes
   useEffect(() => { saveConfig({ ...config, roi }) }, [config, roi])
 
@@ -397,7 +400,7 @@ export default function CreateVideos() {
           setFusionLog(prev => [...prev.slice(-19), entry])
           traceRecorderRef.current.record({ ts, motionScore: score, audioLevel: level, decision: 'motion-spike' })
         })
-        md.start(videoEl, () => roi)
+        md.start(videoEl, () => roiRef.current)
         motionDetectorRef.current = md
       }
 
@@ -440,6 +443,8 @@ export default function CreateVideos() {
   function startAudio(stream: MediaStream) {
     const ctx = new AudioContext()
     audioCtxRef.current = ctx
+    // iOS may create AudioContext in 'suspended' state even after user gesture
+    ctx.resume().catch(() => {})
     const src = ctx.createMediaStreamSource(stream)
     const analyser = ctx.createAnalyser()
     analyser.fftSize = 512
@@ -780,7 +785,12 @@ export default function CreateVideos() {
             {/* Feedback */}
             <section className="flex flex-col gap-2">
               <h3 className="font-semibold text-green-400">False trigger / Missed swing buttons</h3>
-              <p className="text-gray-300 leading-relaxed">During clip review, two small buttons appear at the bottom of the video. Tap <strong className="text-white">False trigger</strong> if no swing happened, or <strong className="text-white">Missed swing</strong> if a real swing wasn't saved. These are logged locally to help tune the detector.</p>
+              <p className="text-gray-300 leading-relaxed">The clip is <strong className="text-white">already saved</strong> the moment review starts — the "Review · Saved ✓" badge confirms this. The two buttons at the bottom are optional feedback tags only:</p>
+              <ul className="list-disc list-inside flex flex-col gap-1 text-gray-300 leading-relaxed">
+                <li><strong className="text-white">False trigger</strong> — tap if the app saved a clip but no swing happened (a door slam, clap, etc.). Tags the clip for later review.</li>
+                <li><strong className="text-white">Missed swing</strong> — tap if you swung but this clip doesn't look right (e.g. motion-only mode fired too early). Tags the clip for later review.</li>
+              </ul>
+              <p className="text-gray-400 text-xs">Tapping either button does not delete or discard the saved clip. Tags are stored locally and can be exported with the trace.</p>
             </section>
 
             <button
@@ -877,7 +887,7 @@ export default function CreateVideos() {
           {status === 'reviewing' && (
             <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
               <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
-              <span className="text-white text-sm font-medium">Review</span>
+              <span className="text-white text-sm font-medium">Review · Saved ✓</span>
             </div>
           )}
           {status === 'reviewing' && reviewTap && (
@@ -895,21 +905,24 @@ export default function CreateVideos() {
             </button>
           )}
           {status === 'reviewing' && (
-            <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-3" style={{ pointerEvents: 'auto' }}>
-              <button
-                onClick={() => logFeedback('false-trigger')}
-                className="px-3 py-1.5 rounded-lg bg-red-900/70 hover:bg-red-800/80 text-red-200 text-xs cursor-pointer"
-                title="Log this as a false trigger"
-              >
-                False trigger
-              </button>
-              <button
-                onClick={() => logFeedback('missed-swing')}
-                className="px-3 py-1.5 rounded-lg bg-gray-700/70 hover:bg-gray-600/80 text-gray-300 text-xs cursor-pointer"
-                title="Log this as a missed swing"
-              >
-                Missed swing
-              </button>
+            <div className="absolute bottom-3 left-0 right-0 flex flex-col items-center gap-1" style={{ pointerEvents: 'auto' }}>
+              <p className="text-gray-400 text-xs">Already saved — tag it (optional):</p>
+              <div className="flex justify-center gap-3">
+                <button
+                  onClick={() => logFeedback('false-trigger')}
+                  className="px-3 py-1.5 rounded-lg bg-red-900/70 hover:bg-red-800/80 text-red-200 text-xs cursor-pointer"
+                  title="Tag this clip as a false trigger — clip is already saved"
+                >
+                  False trigger
+                </button>
+                <button
+                  onClick={() => logFeedback('missed-swing')}
+                  className="px-3 py-1.5 rounded-lg bg-gray-700/70 hover:bg-gray-600/80 text-gray-300 text-xs cursor-pointer"
+                  title="Tag this clip as a missed swing — clip is already saved"
+                >
+                  Missed swing
+                </button>
+              </div>
             </div>
           )}
           {status === 'listening' && (

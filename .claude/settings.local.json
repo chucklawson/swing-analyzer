@@ -9,7 +9,9 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(Sort-Object)",
       "Bash(npx vitest *)",
-      "Bash(npx oxlint *)"
+      "Bash(npx oxlint *)",
+      "Bash(findstr /i \".md README\")",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
