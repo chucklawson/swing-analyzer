@@ -35,7 +35,7 @@ export const DEFAULT_CONFIG: SwingConfig = {
   audioSpikeRatio: 2.5,
   audioBackgroundWindow: 2000,
   fusionWindowMs: 400,
-  cooldownMs: 3000,
+  cooldownMs: 15000,
   motionOnlyMode: false,
   roi: { x: 0.2, y: 0.15, w: 0.6, h: 0.7 },
   showDebugPanel: false,
