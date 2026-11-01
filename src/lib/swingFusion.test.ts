@@ -7,6 +7,7 @@ function makeFusion(overrides: Partial<SwingFusionConfig> = {}) {
     audioLookbackMs: 400,
     cooldownMs: 3000,
     motionOnlyMode: false,
+    audioOnlyMode: false,
     ...overrides,
   })
 }
