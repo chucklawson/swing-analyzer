@@ -659,9 +659,139 @@ export default function CreateVideos() {
   }
 
   const active = status === 'listening' || status === 'recording' || status === 'reviewing' || status === 'calibrating'
+  const [showHelp, setShowHelp] = useState(false)
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col items-center p-4 gap-6">
+
+      {/* ── In-app help overlay ── */}
+      {showHelp && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-start justify-center overflow-y-auto"
+          style={{ zIndex: 100 }}
+          onClick={() => setShowHelp(false)}
+        >
+          <div
+            className="relative bg-gray-900 rounded-2xl m-4 p-6 max-w-2xl w-full text-sm text-gray-200 flex flex-col gap-5"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowHelp(false)}
+              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-gray-300 text-lg cursor-pointer"
+              aria-label="Close help"
+            >✕</button>
+
+            <h2 className="text-xl font-semibold text-white">How to use Create Videos</h2>
+
+            {/* Getting started */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">Getting started</h3>
+              <ol className="list-decimal list-inside flex flex-col gap-1 text-gray-300 leading-relaxed">
+                <li>Tap <strong className="text-white">Start Camera</strong> and grant camera + microphone permission.</li>
+                <li>Point the phone at your swing area.</li>
+                <li><strong className="text-white">Draw a box</strong> around the ball and club head by dragging on the video.</li>
+                <li>Tap <strong className="text-white">Calibrate</strong> and hold still for 3 seconds (recommended).</li>
+                <li>Take your swing — a clip saves automatically.</li>
+                <li>After the clip plays back, tap the <strong className="text-white">⌂ Home</strong> button, then <strong className="text-white">Analyze My Swing</strong> to review it.</li>
+              </ol>
+            </section>
+
+            {/* Status badges */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">Status badges (top-left of video)</h3>
+              <div className="flex flex-col gap-1">
+                {[
+                  ['🟢 Listening', 'Ready — watching for a swing'],
+                  ['🔴 Recording', 'Swing detected, capturing post-roll'],
+                  ['🔵 Review',    'Playing back the just-saved clip'],
+                  ['🟡 Calibrating', 'Measuring idle noise — hold still for 3 s'],
+                ].map(([badge, desc]) => (
+                  <div key={badge} className="flex gap-2">
+                    <span className="text-white w-28 shrink-0">{badge}</span>
+                    <span className="text-gray-400">{desc}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* ROI box */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">The ROI box (white rectangle)</h3>
+              <p className="text-gray-300 leading-relaxed">The white rectangle is the <strong className="text-white">Region of Interest</strong>. Only motion inside this box triggers a clip. Keep it tight around the ball and club head.</p>
+              <ul className="list-disc list-inside flex flex-col gap-1 text-gray-300 leading-relaxed">
+                <li><strong className="text-white">Draw new box</strong> — drag anywhere on the video from scratch</li>
+                <li><strong className="text-white">Move box</strong> — tap and drag inside the box</li>
+                <li><strong className="text-white">Resize</strong> — drag any of the 8 white circular handles</li>
+                <li><strong className="text-white">Reset box</strong> button — returns to the default centre position</li>
+                <li>The box <strong className="text-white">flashes green</strong> when a motion spike fires inside it</li>
+                <li>Position is saved and restored automatically</li>
+              </ul>
+            </section>
+
+            {/* Trigger logic */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">When does a clip save?</h3>
+              <p className="text-gray-300 leading-relaxed">A clip saves only when <strong className="text-white">both</strong> happen within the fusion window:</p>
+              <ol className="list-decimal list-inside flex flex-col gap-1 text-gray-300 leading-relaxed">
+                <li>A <strong className="text-white">motion spike</strong> inside the ROI (club/ball moves faster than baseline)</li>
+                <li>An <strong className="text-white">audio impact</strong> — a sharp sound much louder than background noise</li>
+              </ol>
+              <p className="text-gray-400 text-xs leading-relaxed mt-1">Motion must come at or just before the audio. This prevents false saves from clapping, background noise (audio-only), slow pans or shadows (motion-only), and follow-through (cooldown).</p>
+            </section>
+
+            {/* Controls */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">Controls</h3>
+              <div className="flex flex-col gap-2">
+                {[
+                  ['Audio sensitivity', 'How much louder than background a sound must be to count as an impact. Higher = only loud sharp impacts; lower = lighter impacts also trigger. Default 2.5×.'],
+                  ['Window (ms)', 'Maximum gap allowed between motion spike and audio impact. Wider = more forgiving. Default 400 ms.'],
+                  ['Front checkbox', 'Checked = Front/face-on view, filenames end in _F. Unchecked = Down the line, filenames end in _D.'],
+                  ['Record practice swings', 'When ticked, saves a clip on motion alone — no impact sound needed. Good for putting or slow drills. Off by default.'],
+                  ['Flip camera icon', 'Top-right of video (visible when Listening) — switches between front and rear camera.'],
+                ].map(([name, desc]) => (
+                  <div key={name}>
+                    <p className="text-white font-medium">{name}</p>
+                    <p className="text-gray-400 text-xs leading-relaxed">{desc}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Calibration */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">Calibration</h3>
+              <p className="text-gray-300 leading-relaxed">Tap <strong className="text-white">Calibrate</strong>, then hold the camera completely still for 3 seconds. The app measures idle motion and background audio, then suggests thresholds. Tap <strong className="text-white">Apply</strong> to use them.</p>
+              <p className="text-gray-400 text-xs">Run calibration whenever you move to a new location or find too many false clips / missed swings.</p>
+            </section>
+
+            {/* Debug panel */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">Debug panel</h3>
+              <p className="text-gray-300 leading-relaxed">Tap <strong className="text-white">Debug</strong> to show live motion and audio meters on the video, plus a rolling log of the last fusion decisions (FIRED / rejected: audio only / motion only / cooldown / ordering).</p>
+            </section>
+
+            {/* File names */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">File names</h3>
+              <p className="text-gray-300 leading-relaxed">Files are saved as <span className="font-mono text-green-300 text-xs">YYYYMMDD_HHMMSS_count_F.mp4</span> (or <span className="font-mono text-green-300 text-xs">_D.mp4</span>). The count resets each day. All clips are saved to the browser's private storage (OPFS) automatically.</p>
+            </section>
+
+            {/* Feedback */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">False trigger / Missed swing buttons</h3>
+              <p className="text-gray-300 leading-relaxed">During clip review, two small buttons appear at the bottom of the video. Tap <strong className="text-white">False trigger</strong> if no swing happened, or <strong className="text-white">Missed swing</strong> if a real swing wasn't saved. These are logged locally to help tune the detector.</p>
+            </section>
+
+            <button
+              onClick={() => setShowHelp(false)}
+              className="mt-2 px-6 py-2.5 rounded-xl bg-green-400 hover:bg-green-300 text-black font-semibold active:scale-95 transition-all cursor-pointer self-center"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center gap-3 w-full max-w-2xl">
         <button
@@ -670,6 +800,11 @@ export default function CreateVideos() {
           title="Home"
         >⌂</button>
         <h1 className="text-3xl font-semibold tracking-tight">Create Videos</h1>
+        <button
+          onClick={() => setShowHelp(true)}
+          className="ml-auto w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-gray-300 font-semibold cursor-pointer"
+          title="Help"
+        >?</button>
       </div>
 
       <div className="w-full max-w-2xl aspect-video bg-black rounded-xl overflow-hidden relative">
