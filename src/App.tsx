@@ -11,10 +11,12 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 const hasOpfs = 'storage' in navigator && typeof (navigator.storage as any).getDirectory === 'function'
 
 function formatClipName(name: string): string {
-  const m = name.match(/^(\d{4})(\d{2})(\d{2})-(\d+)-(\d{2})(\d{2})(\d{2})-A\.(mp4|webm)$/)
+  // New format: YYYYMMDD_HHMMSS_count_[F|D].mp4
+  const m = name.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_(\d+)_([FD])\.(mp4|webm)$/)
   if (!m) return name
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${months[parseInt(m[2])-1]} ${parseInt(m[3])} · Clip ${m[4]} · ${m[5]}:${m[6]}:${m[7]}`
+  const view = m[8] === 'F' ? 'Front' : 'Down-the-line'
+  return `${months[parseInt(m[2])-1]} ${parseInt(m[3])} · Clip ${m[7]} · ${view} · ${m[4]}:${m[5]}:${m[6]}`
 }
 
 const PALETTE = ['#ffffff', '#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#a855f7']
@@ -564,7 +566,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       const clips: { name: string; handle: any }[] = []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for await (const [name, handle] of (root as any).entries()) {
-        if (handle.kind === 'file' && /^\d{8}-\d+-\d{6}-A\.(mp4|webm)$/.test(name)) {
+        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD]\.(mp4|webm)$/.test(name)) {
           clips.push({ name, handle })
         }
       }
