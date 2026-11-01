@@ -51,10 +51,10 @@ export class AudioDetector {
       const sorted = this.bgSamples.map(s => s.peak).sort((a, b) => a - b)
       this._bgLevel = sorted[Math.floor(sorted.length / 2)] ?? 0
 
-      const bg = this._bgLevel
-      // Fire impact when peak is significantly above background.
-      // Guard against a zero/near-zero background producing spurious fires.
-      if (bg >= 2 && pct >= bg * this.config.audioSpikeRatio) {
+      // Use a floor of 5 so impacts are detectable even in a completely silent room.
+      // Without the floor, bg can be 0-1 and the ratio check can never satisfy.
+      const effectiveBg = Math.max(this._bgLevel, 5)
+      if (pct >= effectiveBg * this.config.audioSpikeRatio) {
         for (const cb of this.impactCallbacks) cb(now, pct)
       }
 

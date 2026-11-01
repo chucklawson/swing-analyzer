@@ -48,7 +48,10 @@ export function loadConfig(): SwingConfig {
   try {
     const raw = localStorage.getItem(CONFIG_KEY)
     if (!raw) return { ...DEFAULT_CONFIG }
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) as Partial<SwingConfig> }
+    const saved = JSON.parse(raw) as Partial<SwingConfig>
+    // motionOnlyMode is intentionally NOT restored from storage — it always starts
+    // false to prevent accidental clips every session if the user forgot they'd set it.
+    return { ...DEFAULT_CONFIG, ...saved, motionOnlyMode: false }
   } catch {
     return { ...DEFAULT_CONFIG }
   }
