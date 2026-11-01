@@ -227,6 +227,7 @@ export default function CreateVideos() {
     objectFit: 'cover',
   })
   const [calibResult,  setCalibResult]  = useState<CalibrationResult | null>(null)
+  const [calibApplied, setCalibApplied] = useState(false)
   const [isFront,      setIsFront]      = useState(false)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -259,6 +260,7 @@ export default function CreateVideos() {
     const md = motionDetectorRef.current
     const ad = audioDetectorRef.current
     if (!md || !ad) return
+    setCalibApplied(false)
     setStatus('calibrating')
     const result = await runCalibration(md, ad, 3000)
     setCalibResult(result)
@@ -274,6 +276,7 @@ export default function CreateVideos() {
     }))
     motionDetectorRef.current?.updateConfig({ pixelDiffThreshold: calibResult.suggestedPixelDiffThreshold })
     audioDetectorRef.current?.updateConfig({ audioSpikeRatio: calibResult.suggestedAudioSpikeRatio })
+    setCalibApplied(true)
   }
 
   function exportTrace() {
@@ -1119,9 +1122,14 @@ export default function CreateVideos() {
               </p>
               <button
                 onClick={applyCalibration}
-                className="mt-1 px-3 py-1 rounded-lg bg-green-700 hover:bg-green-600 text-green-100 cursor-pointer w-fit"
+                disabled={calibApplied}
+                className={`mt-1 px-3 py-1 rounded-lg text-xs w-fit transition-colors ${
+                  calibApplied
+                    ? 'bg-green-900 text-green-400 cursor-default'
+                    : 'bg-green-700 hover:bg-green-600 text-green-100 cursor-pointer'
+                }`}
               >
-                Apply
+                {calibApplied ? 'Applied ✓' : 'Apply'}
               </button>
             </div>
           )}

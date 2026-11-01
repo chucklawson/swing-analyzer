@@ -58,7 +58,10 @@ export default function RoiOverlay({ roi, onRoiChange, fitInfo, motionScore: _mo
 
     if (!active) return
 
-    // Corner + midpoint handles
+    // Handles are only shown while the pointer is held down so they don't
+    // clutter the view during normal recording.
+    if (dragRef.current.kind === 'none') return
+
     const handles = handlePoints(cssRoi)
     for (const [, hx, hy] of handles) {
       ctx.beginPath()
@@ -155,14 +158,12 @@ export default function RoiOverlay({ roi, onRoiChange, fitInfo, motionScore: _mo
     const handle = hitHandle(px, py)
     if (handle) {
       dragRef.current = { kind: 'resizing', handle, startX: px, startY: py, origRoi: { ...roi } }
-      return
-    }
-    if (insideRoi(px, py)) {
+    } else if (insideRoi(px, py)) {
       dragRef.current = { kind: 'moving', startX: px, startY: py, origRoi: { ...roi } }
-      return
+    } else {
+      dragRef.current = { kind: 'drawing', startX: px, startY: py }
     }
-    // Start drawing a new ROI
-    dragRef.current = { kind: 'drawing', startX: px, startY: py }
+    draw()  // show handles immediately on touch
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
@@ -193,6 +194,7 @@ export default function RoiOverlay({ roi, onRoiChange, fitInfo, motionScore: _mo
 
   function onPointerUp() {
     dragRef.current = { kind: 'none' }
+    draw()  // erase handles as soon as pointer lifts
   }
 
   return (
