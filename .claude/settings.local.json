@@ -4,7 +4,12 @@
       "Bash(dir *)",
       "Bash(npx tsc *)",
       "Bash(git add *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(Get-ChildItem -Path \"D:\\\\awsGitRepos\\\\swing-analyzer\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(npx vitest *)",
+      "Bash(npx oxlint *)"
     ]
   }
 }
