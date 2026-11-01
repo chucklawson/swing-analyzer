@@ -16,7 +16,8 @@ export interface SwingConfig {
   audioSpikeRatio: number      // peak/background ratio to fire
   audioBackgroundWindow: number // background rolling window in ms
   // fusion
-  fusionWindowMs: number       // max ms between motion spike and audio impact
+  fusionWindowMs: number       // ms after motion spike to still accept a late-arriving motion RAF callback
+  audioLookbackMs: number      // how far back to look for motion when audio impact fires
   cooldownMs: number           // ms before fusion can fire again
   motionOnlyMode: boolean      // save clips on motion alone (default off)
   // roi
@@ -35,7 +36,8 @@ export const DEFAULT_CONFIG: SwingConfig = {
   audioSpikeRatio: 2.5,
   audioBackgroundWindow: 2000,
   fusionWindowMs: 400,
-  cooldownMs: 15000,
+  audioLookbackMs: 2000,
+  cooldownMs: 7000,
   motionOnlyMode: false,
   roi: { x: 0.2, y: 0.15, w: 0.6, h: 0.7 },
   showDebugPanel: false,

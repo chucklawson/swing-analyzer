@@ -361,9 +361,10 @@ export default function CreateVideos() {
 
       // Wire up fusion + detectors
       const fusion = new SwingFusion({
-        fusionWindowMs: config.fusionWindowMs,
-        cooldownMs:     config.cooldownMs,
-        motionOnlyMode: config.motionOnlyMode,
+        fusionWindowMs:  config.fusionWindowMs,
+        audioLookbackMs: config.audioLookbackMs,
+        cooldownMs:      config.cooldownMs,
+        motionOnlyMode:  config.motionOnlyMode,
       })
       fusion.onSwing((audioTs) => trigger(audioTs))
       fusion.onRejected((reason, ts) => {

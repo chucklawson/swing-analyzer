@@ -5,7 +5,7 @@ export type RejectionReason = 'audio-only' | 'motion-only' | 'cooldown' | 'order
 type SwingCallback    = (audioTs: number) => void
 type RejectedCallback = (reason: RejectionReason, ts: number) => void
 
-export type SwingFusionConfig = Pick<SwingConfig, 'fusionWindowMs' | 'cooldownMs' | 'motionOnlyMode'>
+export type SwingFusionConfig = Pick<SwingConfig, 'fusionWindowMs' | 'audioLookbackMs' | 'cooldownMs' | 'motionOnlyMode'>
 
 export class SwingFusion {
   private config: SwingFusionConfig
@@ -94,14 +94,16 @@ export class SwingFusion {
     }
 
     const gap = audioTs - motionTs
-    // Motion must precede audio by at most fusionWindowMs, or arrive within 50ms after
+    // Audio-first model: hear the bang, look back up to audioLookbackMs for any motion.
+    // Motion arriving up to 50ms after audio is still valid (RAF callback timing jitter).
     if (gap < -50) {
-      // Audio arrived >50ms before motion — ordering violation; don't store (invalid pair)
-      for (const cb of this.rejectedCallbacks) cb('ordering', audioTs)
+      // Motion arrived well after audio — store audio for bidirectional match
+      this.lastAudioImpactTs = audioTs
+      for (const cb of this.rejectedCallbacks) cb('audio-only', audioTs)
       return
     }
-    if (gap > this.config.fusionWindowMs) {
-      // Motion spike too old — store for bidirectional match with next motion spike
+    if (gap > this.config.audioLookbackMs) {
+      // No motion within lookback window — likely a clap or noise, not a swing
       this.lastAudioImpactTs = audioTs
       for (const cb of this.rejectedCallbacks) cb('audio-only', audioTs)
       return
