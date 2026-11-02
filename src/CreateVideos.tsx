@@ -242,13 +242,13 @@ export default function CreateVideos() {
   // Keep refs in sync so callbacks always read the latest values
   useEffect(() => { roiRef.current = roi }, [roi])
   useEffect(() => { configRef.current = config }, [config])
-  // Wire debug canvas to ball detector after it renders
+  // Wire debug canvas to ball detector after it renders; also clears it when closed
   useEffect(() => {
     const isActive = status === 'listening' || status === 'recording' || status === 'reviewing'
     if (isActive && config.ballDetectionEnabled && ballDetectorRef.current) {
-      ballDetectorRef.current.setDebugCanvas(ballDebugCanvasRef.current)
+      ballDetectorRef.current.setDebugCanvas(ballDebugOpen ? ballDebugCanvasRef.current : null)
     }
-  }, [status, config.ballDetectionEnabled])
+  }, [status, config.ballDetectionEnabled, ballDebugOpen])
 
   // Keep fitInfo in sync with the video element's actual dimensions
   const updateFitInfo = useCallback(() => {
