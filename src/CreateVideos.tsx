@@ -186,6 +186,7 @@ export default function CreateVideos() {
   const audioCtxRef       = useRef<AudioContext | null>(null)
   const analyserRef       = useRef<AnalyserNode | null>(null)
   const audioDetectorRef  = useRef<AudioDetector | null>(null)
+  const gainNodeRef       = useRef<GainNode | null>(null)
   const swingFusionRef    = useRef<SwingFusion | null>(null)
   const traceRecorderRef  = useRef<TraceRecorder>(new TraceRecorder())
 
@@ -421,10 +422,14 @@ export default function CreateVideos() {
     // iOS may create AudioContext in 'suspended' state even after user gesture
     ctx.resume().catch(() => {})
     const src = ctx.createMediaStreamSource(stream)
+    const gain = ctx.createGain()
+    gain.gain.value = config.micGain
+    gainNodeRef.current = gain
     const analyser = ctx.createAnalyser()
     analyser.fftSize = 512
     analyser.smoothingTimeConstant = 0
-    src.connect(analyser)
+    src.connect(gain)
+    gain.connect(analyser)
     analyserRef.current = analyser
 
     const detector = new AudioDetector(analyser, {
@@ -1025,6 +1030,21 @@ export default function CreateVideos() {
               />
             </div>
             <span className="text-gray-500 text-sm w-10 text-right">{level}%</span>
+          </div>
+
+          {/* Mic boost slider */}
+          <div className="flex items-center gap-3">
+            <span className="text-gray-400 text-sm w-20 shrink-0">Mic boost</span>
+            <input
+              type="range" min={1} max={10} step={0.5} value={config.micGain}
+              onChange={e => {
+                const v = Number(e.target.value)
+                setConfig(prev => ({ ...prev, micGain: v }))
+                if (gainNodeRef.current) gainNodeRef.current.gain.value = v
+              }}
+              className="flex-1 accent-green-400"
+            />
+            <span className="text-gray-500 text-sm w-10 text-right">{config.micGain}×</span>
           </div>
 
           {/* Audio sensitivity slider */}

@@ -14,6 +14,8 @@ export interface SwingConfig {
   audioLookbackMs: number      // how far back to look for motion when audio impact fires
   cooldownMs: number           // ms before fusion can fire again
   audioOnlyMode: boolean       // always true now (no motion detection)
+  // audio input
+  micGain: number                      // GainNode multiplier applied before analyser
   // ball detection
   ballDetectionEnabled: boolean
   ballBrightnessThreshold: number  // luma units above ROI mean (adaptive offset, not absolute)
@@ -33,6 +35,7 @@ export const DEFAULT_CONFIG: SwingConfig = {
   audioLookbackMs: 2000,
   cooldownMs: 7000,
   audioOnlyMode: true,
+  micGain: 4,
   ballDetectionEnabled: true,
   ballBrightnessThreshold: 20,
   ballMinPixels: 2,
