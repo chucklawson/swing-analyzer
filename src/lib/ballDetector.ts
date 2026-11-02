@@ -96,6 +96,7 @@ export class BallDetector {
   private ctx: OffscreenCanvasRenderingContext2D | null = null
   private videoEl: HTMLVideoElement | null = null
   private getRoi: (() => NormalizedRect) | null = null
+  private debugCtx: CanvasRenderingContext2D | null = null
 
   constructor(config: BallDetectorConfig) {
     this.config = { ...config }
@@ -127,6 +128,9 @@ export class BallDetector {
   onBallLost(cb: () => void): void { this.onLostCb = cb }
   currentPosition(): BallPosition | null { return this._currentPos }
   updateConfig(patch: Partial<BallDetectorConfig>): void { this.config = { ...this.config, ...patch } }
+  setDebugCanvas(el: HTMLCanvasElement | null): void {
+    this.debugCtx = el ? el.getContext('2d') : null
+  }
 
   private _loop(): void {
     if (!this.running) return
@@ -164,7 +168,8 @@ export class BallDetector {
     for (let i = 0; i < n; i++) {
       sumLuma += 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]
     }
-    const lumaFloor = sumLuma / n + this.config.brightnessThreshold
+    const meanLuma  = sumLuma / n
+    const lumaFloor = meanLuma + this.config.brightnessThreshold
 
     const bright = new Uint8Array(n)
     for (let i = 0; i < n; i++) {
@@ -172,9 +177,9 @@ export class BallDetector {
     }
 
     const blob = findBestBlob(bright, CANVAS_SIZE, CANVAS_SIZE, this.config.minBlobPixels, this.config.maxBlobPixels)
+    this._renderDebug(data, bright, meanLuma, lumaFloor, blob)
 
     if (blob) {
-      // Convert ROI-canvas coordinates to full-frame normalized coordinates
       const nx = roi.x + (blob.cx / CANVAS_SIZE) * roi.w
       const ny = roi.y + (blob.cy / CANVAS_SIZE) * roi.h
       const radius = Math.sqrt(blob.area / Math.PI) / CANVAS_SIZE * Math.min(roi.w, roi.h)
@@ -182,6 +187,57 @@ export class BallDetector {
     } else {
       this._processPos(null)
     }
+  }
+
+  private _renderDebug(
+    data: Uint8ClampedArray,
+    bright: Uint8Array,
+    meanLuma: number,
+    lumaFloor: number,
+    blob: BlobResult | null,
+  ): void {
+    const dctx = this.debugCtx
+    if (!dctx) return
+
+    // Build a composite ImageData: dark pixels dimmed, bright pixels orange-tinted
+    const out = new ImageData(CANVAS_SIZE, CANVAS_SIZE)
+    const d = out.data
+    for (let i = 0; i < bright.length; i++) {
+      const o = i * 4
+      if (bright[i]) {
+        d[o]   = Math.min(255, data[o]   + 80)   // boost red
+        d[o+1] = (data[o+1] * 0.5) | 0           // cut green
+        d[o+2] = (data[o+2] * 0.4) | 0           // cut blue
+        d[o+3] = 255
+      } else {
+        d[o]   = (data[o]   * 0.55) | 0
+        d[o+1] = (data[o+1] * 0.55) | 0
+        d[o+2] = (data[o+2] * 0.55) | 0
+        d[o+3] = 255
+      }
+    }
+    dctx.putImageData(out, 0, 0)
+
+    // Green circle + crosshair on best blob
+    if (blob) {
+      const r = Math.max(2, Math.sqrt(blob.area / Math.PI))
+      dctx.strokeStyle = 'rgba(34,197,94,0.95)'
+      dctx.lineWidth = 1.5
+      dctx.beginPath()
+      dctx.arc(blob.cx, blob.cy, r, 0, Math.PI * 2)
+      dctx.stroke()
+      dctx.fillStyle = '#22c55e'
+      dctx.fillRect(blob.cx - 1, blob.cy - 1, 3, 3)
+    }
+
+    // Stats bar
+    const barH = 14
+    dctx.fillStyle = 'rgba(0,0,0,0.8)'
+    dctx.fillRect(0, CANVAS_SIZE - barH, CANVAS_SIZE, barH)
+    dctx.fillStyle = '#cbd5e1'
+    dctx.font = '8px monospace'
+    const blobText = blob ? `blob ${blob.area}px` : 'no blob'
+    dctx.fillText(`μ${meanLuma | 0}  thr${lumaFloor | 0}  ${blobText}`, 3, CANVAS_SIZE - 3)
   }
 
   // Bypasses video/canvas capture — feeds the state machine directly (for testing).

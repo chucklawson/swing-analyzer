@@ -228,6 +228,10 @@ export default function CreateVideos() {
   const [isFront,      setIsFront]      = useState(false)
   const [armed,        setArmed]        = useState(false)
   const [ballPos,      setBallPos]      = useState<BallPosition | null>(null)
+  const ballDebugCanvasRef = useRef<HTMLCanvasElement>(null)
+  const [debugPos,     setDebugPos]     = useState({ x: 10, y: 60 })
+  const [ballDebugOpen, setBallDebugOpen] = useState(false)
+  const debugDragRef   = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasFsApi = 'showDirectoryPicker' in (window as any)
@@ -238,6 +242,13 @@ export default function CreateVideos() {
   // Keep refs in sync so callbacks always read the latest values
   useEffect(() => { roiRef.current = roi }, [roi])
   useEffect(() => { configRef.current = config }, [config])
+  // Wire debug canvas to ball detector after it renders
+  useEffect(() => {
+    const isActive = status === 'listening' || status === 'recording' || status === 'reviewing'
+    if (isActive && config.ballDetectionEnabled && ballDetectorRef.current) {
+      ballDetectorRef.current.setDebugCanvas(ballDebugCanvasRef.current)
+    }
+  }, [status, config.ballDetectionEnabled])
 
   // Keep fitInfo in sync with the video element's actual dimensions
   const updateFitInfo = useCallback(() => {
@@ -659,24 +670,35 @@ export default function CreateVideos() {
               <h3 className="font-semibold text-green-400">Getting started</h3>
               <ol className="list-decimal list-inside flex flex-col gap-1 text-gray-300 leading-relaxed">
                 <li>Tap <strong className="text-white">Start Camera</strong> and grant camera + microphone permission.</li>
-                <li>Point the phone at your swing area.</li>
-                <li><strong className="text-white">Draw a box</strong> around the ball and club head by dragging on the video.</li>
-                <li>Take your swing — a clip saves automatically.</li>
-                <li>After the clip plays back, tap the <strong className="text-white">⌂ Home</strong> button, then <strong className="text-white">Analyze My Swing</strong> to review it.</li>
+                <li>Point the phone at your swing area so the ball is visible.</li>
+                <li><strong className="text-white">Draw a box</strong> around the ball position by dragging on the video — keep it tight.</li>
+                <li>Take your swing — a clip saves automatically when the impact sound is detected.</li>
+                <li>The clip plays back immediately. Tap <strong className="text-white">⌂ Home</strong> → <strong className="text-white">Analyze My Swing</strong> to review it.</li>
               </ol>
+              <p className="text-gray-400 text-xs leading-relaxed mt-1">For fewer false saves, enable <strong className="text-white">Require ball in ROI</strong> — the app will only save when a ball is visible in the box at the time of impact. See Ball Detection below.</p>
             </section>
 
             {/* Status badges */}
             <section className="flex flex-col gap-2">
               <h3 className="font-semibold text-green-400">Status badges (top-left of video)</h3>
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1.5">
                 {[
-                  ['🟢 Listening', 'Ready — watching for a swing'],
-                  ['🔴 Recording', 'Swing detected, capturing post-roll'],
-                  ['🔵 Review',    'Playing back the just-saved clip'],
+                  ['🟢 Listening',      'Ready — watching for an impact sound'],
+                  ['🔴 Recording',      'Impact detected — capturing post-roll footage'],
+                  ['🔵 Review · Saved', 'Playing back the just-saved clip'],
                 ].map(([badge, desc]) => (
                   <div key={badge} className="flex gap-2">
-                    <span className="text-white w-28 shrink-0">{badge}</span>
+                    <span className="text-white w-36 shrink-0">{badge}</span>
+                    <span className="text-gray-400">{desc}</span>
+                  </div>
+                ))}
+                <p className="text-gray-500 text-xs mt-1">When ball detection is on, a second badge appears below Listening:</p>
+                {[
+                  ['● Armed',           'Ball is visible in the ROI — a clip will save on next impact'],
+                  ['● Waiting for ball','No ball detected yet — impact sound alone will not save a clip'],
+                ].map(([badge, desc]) => (
+                  <div key={badge} className="flex gap-2">
+                    <span className="text-white w-36 shrink-0">{badge}</span>
                     <span className="text-gray-400">{desc}</span>
                   </div>
                 ))}
@@ -686,38 +708,57 @@ export default function CreateVideos() {
             {/* ROI box */}
             <section className="flex flex-col gap-2">
               <h3 className="font-semibold text-green-400">The ROI box (white rectangle)</h3>
-              <p className="text-gray-300 leading-relaxed">The white rectangle is the <strong className="text-white">Region of Interest</strong>. Only motion inside this box triggers a clip. Keep it tight around the ball and club head.</p>
+              <p className="text-gray-300 leading-relaxed">The white rectangle is the <strong className="text-white">Region of Interest</strong> — the area the ball detector watches. Position it tightly around where the ball sits at address.</p>
               <ul className="list-disc list-inside flex flex-col gap-1 text-gray-300 leading-relaxed">
                 <li><strong className="text-white">Draw new box</strong> — drag anywhere on the video from scratch</li>
-                <li><strong className="text-white">Move box</strong> — tap and drag inside the box</li>
+                <li><strong className="text-white">Move box</strong> — tap and drag from inside the box</li>
                 <li><strong className="text-white">Resize</strong> — drag any of the 8 white circular handles</li>
-                <li><strong className="text-white">Reset box</strong> button — returns to the default centre position</li>
-                <li>The box <strong className="text-white">flashes green</strong> when a motion spike fires inside it</li>
-                <li>Position is saved and restored automatically</li>
+                <li><strong className="text-white">Reset box</strong> button — returns to the default center position</li>
+                <li>When a ball is detected, a <strong className="text-white">green crosshair and circle</strong> appear on its position inside the box</li>
+                <li>Box position is saved and restored automatically</li>
               </ul>
             </section>
 
             {/* Trigger logic */}
             <section className="flex flex-col gap-2">
               <h3 className="font-semibold text-green-400">When does a clip save?</h3>
-              <p className="text-gray-300 leading-relaxed">A clip saves only when <strong className="text-white">both</strong> happen within the fusion window:</p>
+              <p className="text-gray-300 leading-relaxed font-medium">Audio-only mode (default):</p>
+              <p className="text-gray-300 leading-relaxed">A clip saves whenever a sharp impact sound — much louder than the background — is detected. Simple and reliable in quiet environments.</p>
+              <p className="text-gray-300 leading-relaxed font-medium mt-1">With ball detection enabled:</p>
+              <p className="text-gray-300 leading-relaxed">A clip only saves when <strong className="text-white">both</strong> conditions are true:</p>
               <ol className="list-decimal list-inside flex flex-col gap-1 text-gray-300 leading-relaxed">
-                <li>A <strong className="text-white">motion spike</strong> inside the ROI (club/ball moves faster than baseline)</li>
-                <li>An <strong className="text-white">audio impact</strong> — a sharp sound much louder than background noise</li>
+                <li>A golf ball is visible in the ROI (<strong className="text-white">Armed</strong> badge is showing)</li>
+                <li>An audio impact fires</li>
               </ol>
-              <p className="text-gray-400 text-xs leading-relaxed mt-1">Motion must come at or just before the audio. This prevents false saves from clapping, background noise (audio-only), slow pans or shadows (motion-only), and follow-through (cooldown).</p>
+              <p className="text-gray-400 text-xs leading-relaxed mt-1">This prevents false saves from background noise, clapping, or any loud sound when no ball is present. A 7-second cooldown prevents multiple clips from a single swing.</p>
+            </section>
+
+            {/* Ball detection */}
+            <section className="flex flex-col gap-2">
+              <h3 className="font-semibold text-green-400">Ball detection</h3>
+              <div className="flex flex-col gap-2">
+                {[
+                  ['Require ball in ROI', 'Master toggle. When checked, the app watches the ROI box every frame for a white golf ball. A clip only saves when the ball is confirmed visible (Armed) at the time of impact. Off by default.'],
+                  ['Ball sens.', 'How much brighter than its background the ball must appear to be detected. Lower = more sensitive, picks up subtler balls. Higher = less sensitive, ignores weak highlights. Adjust until the Armed badge appears reliably when the ball is in the box and disappears when it is removed.'],
+                  ['Show ball detector view', 'Opens a small draggable window on the video showing exactly what the detector sees: bright areas are highlighted orange-red, the detected ball is circled in green, and a stats bar at the bottom shows mean brightness, threshold, and blob size. Drag the "⠿ Ball View" title bar to move it anywhere on the screen. Use this to tune Ball sens. — you want the ball to light up orange-red while the background stays dim.'],
+                ].map(([name, desc]) => (
+                  <div key={name}>
+                    <p className="text-white font-medium">{name}</p>
+                    <p className="text-gray-400 text-xs leading-relaxed">{desc}</p>
+                  </div>
+                ))}
+              </div>
             </section>
 
             {/* Controls */}
             <section className="flex flex-col gap-2">
-              <h3 className="font-semibold text-green-400">Controls</h3>
+              <h3 className="font-semibold text-green-400">Other controls</h3>
               <div className="flex flex-col gap-2">
                 {[
-                  ['Audio sensitivity', 'How much louder than background a sound must be to count as an impact. Higher = only loud sharp impacts; lower = lighter impacts also trigger. Default 2.5×.'],
-                  ['Window (ms)', 'Maximum gap allowed between motion spike and audio impact. Wider = more forgiving. Default 400 ms.'],
-                  ['Front checkbox', 'Checked = Front/face-on view, filenames end in _F. Unchecked = Down the line, filenames end in _D.'],
-                  ['Record practice swings', 'When ticked, saves a clip on motion alone — no impact sound needed. Good for putting or slow drills. Off by default.'],
+                  ['Audio sensitivity', 'How much louder than background a sound must be to count as an impact. Higher = only loud sharp strikes; lower = lighter contact also triggers. Default 2.5×.'],
+                  ['Front checkbox', 'Checked = front/face-on view, filenames end in _F. Unchecked = down-the-line, filenames end in _D.'],
                   ['Flip camera icon', 'Top-right of video (visible when Listening) — switches between front and rear camera.'],
+                  ['Reset box', 'Returns the ROI box to the default center position.'],
                 ].map(([name, desc]) => (
                   <div key={name}>
                     <p className="text-white font-medium">{name}</p>
@@ -730,13 +771,13 @@ export default function CreateVideos() {
             {/* Debug panel */}
             <section className="flex flex-col gap-2">
               <h3 className="font-semibold text-green-400">Debug panel</h3>
-              <p className="text-gray-300 leading-relaxed">Tap <strong className="text-white">Debug</strong> to show live motion and audio meters on the video, plus a rolling log of the last fusion decisions (FIRED / rejected: audio only / motion only / cooldown / ordering).</p>
+              <p className="text-gray-300 leading-relaxed">Tap <strong className="text-white">Debug</strong> to show a live audio level meter and a rolling log of the last 20 trigger decisions (FIRED / rejected: cooldown / audio only).</p>
             </section>
 
             {/* File names */}
             <section className="flex flex-col gap-2">
               <h3 className="font-semibold text-green-400">File names</h3>
-              <p className="text-gray-300 leading-relaxed">Files are saved as <span className="font-mono text-green-300 text-xs">YYYYMMDD_HHMMSS_count_F.mp4</span> (or <span className="font-mono text-green-300 text-xs">_D.mp4</span>). The count resets each day. All clips are saved to the browser's private storage (OPFS) automatically.</p>
+              <p className="text-gray-300 leading-relaxed">Files are saved as <span className="font-mono text-green-300 text-xs">YYYYMMDD_HHMMSS_count_F.mp4</span> (or <span className="font-mono text-green-300 text-xs">_D.mp4</span>). The count resets each day. All clips are saved automatically to the browser's private storage (OPFS) and accessible from the My Clips browser on the home screen.</p>
             </section>
 
 
@@ -858,6 +899,38 @@ export default function CreateVideos() {
             </button>
           )}
         </div>
+
+        {/* Ball detector debug view — zIndex 6, draggable */}
+        {config.ballDetectionEnabled && active && ballDebugOpen && (
+          <div
+            className="absolute rounded-md overflow-hidden"
+            style={{ zIndex: 6, left: debugPos.x, top: debugPos.y, boxShadow: '0 2px 8px rgba(0,0,0,0.6)' }}
+          >
+            <div
+              className="bg-gray-900/90 text-gray-300 text-xs px-2 py-0.5 flex items-center gap-1 select-none"
+              style={{ cursor: 'move', touchAction: 'none' }}
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId)
+                debugDragRef.current = { startX: e.clientX, startY: e.clientY, origX: debugPos.x, origY: debugPos.y }
+              }}
+              onPointerMove={(e) => {
+                if (!debugDragRef.current) return
+                const { startX, startY, origX, origY } = debugDragRef.current
+                setDebugPos({ x: origX + e.clientX - startX, y: origY + e.clientY - startY })
+              }}
+              onPointerUp={() => { debugDragRef.current = null }}
+              onPointerCancel={() => { debugDragRef.current = null }}
+            >
+              ⠿ Ball View
+            </div>
+            <canvas
+              ref={ballDebugCanvasRef}
+              width={128}
+              height={128}
+              style={{ display: 'block', width: 192, height: 192, imageRendering: 'pixelated' }}
+            />
+          </div>
+        )}
       </div>
 
       {error && (
@@ -1008,19 +1081,30 @@ export default function CreateVideos() {
           </label>
 
           {config.ballDetectionEnabled && (
-            <div className="flex items-center gap-3">
-              <span className="text-gray-400 text-sm w-20 shrink-0">Ball sens.</span>
-              <input
-                type="range" min={5} max={60} step={5} value={config.ballBrightnessThreshold}
-                onChange={e => {
-                  const v = Number(e.target.value)
-                  setConfig(prev => ({ ...prev, ballBrightnessThreshold: v }))
-                  ballDetectorRef.current?.updateConfig({ brightnessThreshold: v })
-                }}
-                className="flex-1 accent-green-400"
-              />
-              <span className="text-gray-500 text-sm w-10 text-right">{config.ballBrightnessThreshold}</span>
-            </div>
+            <>
+              <div className="flex items-center gap-3">
+                <span className="text-gray-400 text-sm w-20 shrink-0">Ball sens.</span>
+                <input
+                  type="range" min={5} max={60} step={5} value={config.ballBrightnessThreshold}
+                  onChange={e => {
+                    const v = Number(e.target.value)
+                    setConfig(prev => ({ ...prev, ballBrightnessThreshold: v }))
+                    ballDetectorRef.current?.updateConfig({ brightnessThreshold: v })
+                  }}
+                  className="flex-1 accent-green-400"
+                />
+                <span className="text-gray-500 text-sm w-10 text-right">{config.ballBrightnessThreshold}</span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={ballDebugOpen}
+                  onChange={e => setBallDebugOpen(e.target.checked)}
+                  className="w-4 h-4 accent-green-400 cursor-pointer"
+                />
+                <span className="text-gray-300 text-sm">Show ball detector view</span>
+              </label>
+            </>
           )}
 
           {/* Action row: ROI hint, Calibrate, Debug, Reset box, Export */}
