@@ -4,7 +4,6 @@ import { loadConfig, saveConfig, DEFAULT_CONFIG, type SwingConfig, type Normaliz
 import { AudioDetector } from './lib/audioDetector.ts'
 import { SwingFusion } from './lib/swingFusion.ts'
 import { TraceRecorder } from './lib/traceRecorder.ts'
-import { runCalibration, type CalibrationResult } from './lib/calibration.ts'
 import RoiOverlay from './components/RoiOverlay.tsx'
 import DebugPanel from './components/DebugPanel.tsx'
 import type { VideoFitInfo } from './lib/roiCoords.ts'
@@ -206,7 +205,7 @@ export default function CreateVideos() {
   const facingRef         = useRef<'environment' | 'user'>('environment')
   const isFrontRef        = useRef(false)
 
-  const [status,       setStatus]       = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing' | 'calibrating'>('idle')
+  const [status,       setStatus]       = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing'>('idle')
   const [level,        setLevel]        = useState(0)
   const [facing,       setFacing]       = useState<'environment' | 'user'>('environment')
   const [saveFolder,   setSaveFolder]   = useState<string | null>(null)
@@ -221,8 +220,6 @@ export default function CreateVideos() {
     videoW: 1280,    videoH: 720,
     objectFit: 'cover',
   })
-  const [calibResult,  setCalibResult]  = useState<CalibrationResult | null>(null)
-  const [calibApplied, setCalibApplied] = useState(false)
   const [isFront,      setIsFront]      = useState(false)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -249,26 +246,6 @@ export default function CreateVideos() {
     })
   }, [])
 
-  async function handleCalibrate() {
-    const ad = audioDetectorRef.current
-    if (!ad) return
-    setCalibApplied(false)
-    setStatus('calibrating')
-    const result = await runCalibration(null, ad, 3000)
-    setCalibResult(result)
-    setStatus('listening')
-  }
-
-  function applyCalibration() {
-    if (!calibResult) return
-    setConfig(prev => ({
-      ...prev,
-      audioSpikeRatio: calibResult.suggestedAudioSpikeRatio,
-    }))
-    audioDetectorRef.current?.updateConfig({ audioSpikeRatio: calibResult.suggestedAudioSpikeRatio })
-    setCalibApplied(true)
-  }
-
   function exportTrace() {
     const json = traceRecorderRef.current.export()
     const blob = new Blob([json], { type: 'application/json' })
@@ -280,16 +257,6 @@ export default function CreateVideos() {
     URL.revokeObjectURL(url)
   }
 
-  function logFeedback(kind: 'false-trigger' | 'missed-swing') {
-    const now = Date.now()
-    const entries = traceRecorderRef.current.slice(now - 5000, now)
-    const record = { kind, ts: now, trace: entries }
-    try {
-      const existing = JSON.parse(localStorage.getItem('swing-feedback') ?? '[]') as unknown[]
-      existing.push(record)
-      localStorage.setItem('swing-feedback', JSON.stringify(existing.slice(-100)))
-    } catch { /* non-fatal */ }
-  }
 
   async function pickFolder() {
     try {
@@ -630,7 +597,7 @@ export default function CreateVideos() {
     setLevel(0)
   }
 
-  const active = status === 'listening' || status === 'recording' || status === 'reviewing' || status === 'calibrating'
+  const active = status === 'listening' || status === 'recording' || status === 'reviewing'
   const [showHelp, setShowHelp] = useState(false)
 
   return (
@@ -662,7 +629,6 @@ export default function CreateVideos() {
                 <li>Tap <strong className="text-white">Start Camera</strong> and grant camera + microphone permission.</li>
                 <li>Point the phone at your swing area.</li>
                 <li><strong className="text-white">Draw a box</strong> around the ball and club head by dragging on the video.</li>
-                <li>Tap <strong className="text-white">Calibrate</strong> and hold still for 3 seconds (recommended).</li>
                 <li>Take your swing — a clip saves automatically.</li>
                 <li>After the clip plays back, tap the <strong className="text-white">⌂ Home</strong> button, then <strong className="text-white">Analyze My Swing</strong> to review it.</li>
               </ol>
@@ -676,7 +642,6 @@ export default function CreateVideos() {
                   ['🟢 Listening', 'Ready — watching for a swing'],
                   ['🔴 Recording', 'Swing detected, capturing post-roll'],
                   ['🔵 Review',    'Playing back the just-saved clip'],
-                  ['🟡 Calibrating', 'Measuring idle noise — hold still for 3 s'],
                 ].map(([badge, desc]) => (
                   <div key={badge} className="flex gap-2">
                     <span className="text-white w-28 shrink-0">{badge}</span>
@@ -730,13 +695,6 @@ export default function CreateVideos() {
               </div>
             </section>
 
-            {/* Calibration */}
-            <section className="flex flex-col gap-2">
-              <h3 className="font-semibold text-green-400">Calibration</h3>
-              <p className="text-gray-300 leading-relaxed">Tap <strong className="text-white">Calibrate</strong>, then hold the camera completely still for 3 seconds. The app measures idle motion and background audio, then suggests thresholds. Tap <strong className="text-white">Apply</strong> to use them.</p>
-              <p className="text-gray-400 text-xs">Run calibration whenever you move to a new location or find too many false clips / missed swings.</p>
-            </section>
-
             {/* Debug panel */}
             <section className="flex flex-col gap-2">
               <h3 className="font-semibold text-green-400">Debug panel</h3>
@@ -749,16 +707,6 @@ export default function CreateVideos() {
               <p className="text-gray-300 leading-relaxed">Files are saved as <span className="font-mono text-green-300 text-xs">YYYYMMDD_HHMMSS_count_F.mp4</span> (or <span className="font-mono text-green-300 text-xs">_D.mp4</span>). The count resets each day. All clips are saved to the browser's private storage (OPFS) automatically.</p>
             </section>
 
-            {/* Feedback */}
-            <section className="flex flex-col gap-2">
-              <h3 className="font-semibold text-green-400">False trigger / Missed swing buttons</h3>
-              <p className="text-gray-300 leading-relaxed">The clip is <strong className="text-white">already saved</strong> the moment review starts — the "Review · Saved ✓" badge confirms this. The two buttons at the bottom are optional feedback tags only:</p>
-              <ul className="list-disc list-inside flex flex-col gap-1 text-gray-300 leading-relaxed">
-                <li><strong className="text-white">False trigger</strong> — tap if the app saved a clip but no swing happened (a door slam, clap, etc.). Tags the clip for later review.</li>
-                <li><strong className="text-white">Missed swing</strong> — tap if you swung but this clip doesn't look right (e.g. motion-only mode fired too early). Tags the clip for later review.</li>
-              </ul>
-              <p className="text-gray-400 text-xs">Tapping either button does not delete or discard the saved clip. Tags are stored locally and can be exported with the trace.</p>
-            </section>
 
             <button
               onClick={() => setShowHelp(false)}
@@ -836,15 +784,6 @@ export default function CreateVideos() {
               <span className="text-white text-sm font-medium">Listening</span>
             </div>
           )}
-          {status === 'calibrating' && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/60" style={{ pointerEvents: 'auto' }}>
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-4 h-4 rounded-full bg-yellow-400 animate-pulse" />
-                <span className="text-white text-lg font-medium">Hold still… calibrating</span>
-                <span className="text-gray-300 text-sm">3 seconds</span>
-              </div>
-            </div>
-          )}
           {status === 'reviewing' && (
             <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
               <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
@@ -864,27 +803,6 @@ export default function CreateVideos() {
                 <svg width="36" height="36" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
               </div>
             </button>
-          )}
-          {status === 'reviewing' && (
-            <div className="absolute bottom-3 left-0 right-0 flex flex-col items-center gap-1" style={{ pointerEvents: 'auto' }}>
-              <p className="text-gray-400 text-xs">Already saved — tag it (optional):</p>
-              <div className="flex justify-center gap-3">
-                <button
-                  onClick={() => logFeedback('false-trigger')}
-                  className="px-3 py-1.5 rounded-lg bg-red-900/70 hover:bg-red-800/80 text-red-200 text-xs cursor-pointer"
-                  title="Tag this clip as a false trigger — clip is already saved"
-                >
-                  False trigger
-                </button>
-                <button
-                  onClick={() => logFeedback('missed-swing')}
-                  className="px-3 py-1.5 rounded-lg bg-gray-700/70 hover:bg-gray-600/80 text-gray-300 text-xs cursor-pointer"
-                  title="Tag this clip as a missed swing — clip is already saved"
-                >
-                  Missed swing
-                </button>
-              </div>
-            </div>
           )}
           {status === 'listening' && (
             <button
@@ -976,7 +894,7 @@ export default function CreateVideos() {
         </div>
       )}
 
-      {active && status !== 'calibrating' && (
+      {active && (
         <div className="w-full max-w-2xl flex flex-col gap-3">
           {/* Audio level bar */}
           <div className="flex items-center gap-3">
@@ -1033,13 +951,6 @@ export default function CreateVideos() {
                 Reset box
               </button>
               <button
-                onClick={handleCalibrate}
-                disabled={status !== 'listening'}
-                className="px-3 py-1.5 rounded-lg bg-yellow-700 hover:bg-yellow-600 text-yellow-100 text-xs cursor-pointer disabled:opacity-50"
-              >
-                Calibrate
-              </button>
-              <button
                 onClick={() => setDebugOpen(v => !v)}
                 className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer ${debugOpen ? 'bg-blue-700 text-blue-100' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
               >
@@ -1056,26 +967,6 @@ export default function CreateVideos() {
             </div>
           </div>
 
-          {/* Calibration result */}
-          {calibResult && (
-            <div className="bg-gray-800 rounded-xl p-3 text-xs flex flex-col gap-1">
-              <p className="text-yellow-400 font-medium">Calibration result</p>
-              <p className="text-gray-300">
-                Audio background: {calibResult.audioBackground.toFixed(0)}%
-              </p>
-              <button
-                onClick={applyCalibration}
-                disabled={calibApplied}
-                className={`mt-1 px-3 py-1 rounded-lg text-xs w-fit transition-colors ${
-                  calibApplied
-                    ? 'bg-green-900 text-green-400 cursor-default'
-                    : 'bg-green-700 hover:bg-green-600 text-green-100 cursor-pointer'
-                }`}
-              >
-                {calibApplied ? 'Applied ✓' : 'Apply'}
-              </button>
-            </div>
-          )}
 
           <p className="text-gray-600 text-xs text-center">
             Clip saves on audio impact · {PRE_ROLL_MS/1000}s pre-roll · {POST_ROLL_MS/1000}s post-roll
@@ -1126,8 +1017,7 @@ export default function CreateVideos() {
         ) : (
           <button
             onClick={teardown}
-            disabled={status === 'calibrating'}
-            className="px-8 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-semibold active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+            className="px-8 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-semibold active:scale-95 transition-all cursor-pointer"
           >
             Stop
           </button>
