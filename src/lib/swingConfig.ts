@@ -39,7 +39,7 @@ export const DEFAULT_CONFIG: SwingConfig = {
   ballDetectionEnabled: true,
   ballBrightnessThreshold: 20,
   ballMinPixels: 2,
-  ballMaxPixels: 400,
+  ballMaxPixels: 6000,
   roi: { x: 0.2, y: 0.15, w: 0.6, h: 0.7 },
   showDebugPanel: false,
   traceEnabled: false,
