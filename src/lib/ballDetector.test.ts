@@ -51,84 +51,61 @@ describe('findBestBlob', () => {
     expect(findBestBlob(makeBright(10, 10, pixels), 10, 10, 4, 400)).toBeNull()
   })
 
-  it('selects highest fill-ratio blob when multiple candidates exist', () => {
-    // 3×3 perfect square (fill=1.0) at (0,0) and a 3×4 rect (fill=1.0 but aspect=0.75) at (6,0)
-    // Both pass; the one found first wins (equal score). Just verify we get a result.
+  it('returns a result when multiple candidates exist', () => {
     const arr = makeRect(15, 10, 0, 0, 3, 3)
-    makeRect(15, 10, 6, 0, 4, 3).forEach((v, i) => { arr[i] = arr[i] | v })
-    const blob = findBestBlob(arr, 15, 10, 4, 400)
-    expect(blob).not.toBeNull()
+    makeRect(15, 10, 6, 0, 3, 4).forEach((v, i) => { arr[i] = arr[i] | v })
+    expect(findBestBlob(arr, 15, 10, 4, 400)).not.toBeNull()
   })
 })
 
 describe('BallDetector hysteresis', () => {
-  const CFG = { brightnessThreshold: 200, minBlobPixels: 4, maxBlobPixels: 400, everyNthFrame: 2 }
+  const CFG = { brightnessThreshold: 30, minBlobPixels: 4, maxBlobPixels: 400, everyNthFrame: 2 }
+  const BALL: import('./ballDetector.ts').BallPosition = { nx: 0.3, ny: 0.3, radius: 0.03 }
 
   it('does not fire before 3 consecutive frames', () => {
     const bd = new BallDetector(CFG)
     const cb = vi.fn()
     bd.onBallDetected(cb)
-
-    bd._feedSyntheticBlob({ cx: 10, cy: 10, area: 20 })
-    bd._feedSyntheticBlob({ cx: 10, cy: 10, area: 20 })
+    bd._feedSyntheticPos(BALL)
+    bd._feedSyntheticPos(BALL)
     expect(cb).not.toHaveBeenCalled()
   })
 
-  it('fires onBallDetected after 3 consecutive frames with blob', () => {
+  it('fires onBallDetected after 3 consecutive frames', () => {
     const bd = new BallDetector(CFG)
     const positions: { nx: number; ny: number }[] = []
     bd.onBallDetected(pos => positions.push(pos))
-
-    const blob = { cx: 25, cy: 25, area: 50 }
-    bd._feedSyntheticBlob(blob)
-    bd._feedSyntheticBlob(blob)
-    bd._feedSyntheticBlob(blob)
+    bd._feedSyntheticPos(BALL)
+    bd._feedSyntheticPos(BALL)
+    bd._feedSyntheticPos(BALL)
     expect(positions).toHaveLength(1)
-    expect(positions[0].nx).toBeCloseTo(25 / 128)
-    expect(positions[0].ny).toBeCloseTo(25 / 128)
+    expect(positions[0].nx).toBeCloseTo(BALL.nx)
+    expect(positions[0].ny).toBeCloseTo(BALL.ny)
   })
 
-  it('resets consecutive count when a frame has no blob', () => {
+  it('resets consecutive count when a frame has no detection', () => {
     const bd = new BallDetector(CFG)
     const cb = vi.fn()
     bd.onBallDetected(cb)
-
-    const blob = { cx: 10, cy: 10, area: 20 }
-    bd._feedSyntheticBlob(blob)
-    bd._feedSyntheticBlob(null)   // resets consecutive count
-    bd._feedSyntheticBlob(blob)
-    bd._feedSyntheticBlob(blob)
+    bd._feedSyntheticPos(BALL)
+    bd._feedSyntheticPos(null)   // resets count
+    bd._feedSyntheticPos(BALL)
+    bd._feedSyntheticPos(BALL)
     expect(cb).not.toHaveBeenCalled()  // only 2 consecutive since reset
-
-    bd._feedSyntheticBlob(blob)
+    bd._feedSyntheticPos(BALL)
     expect(cb).toHaveBeenCalledTimes(1)
   })
 
-  it('updates position on every frame after confirmation', () => {
+  it('passes updated position on every frame after confirmation', () => {
     const bd = new BallDetector(CFG)
     const positions: { nx: number }[] = []
     bd.onBallDetected(pos => positions.push(pos))
-
-    const blob = { cx: 10, cy: 10, area: 20 }
-    bd._feedSyntheticBlob(blob); bd._feedSyntheticBlob(blob); bd._feedSyntheticBlob(blob)
+    bd._feedSyntheticPos(BALL); bd._feedSyntheticPos(BALL); bd._feedSyntheticPos(BALL)
     expect(positions).toHaveLength(1)
-
-    bd._feedSyntheticBlob({ cx: 20, cy: 20, area: 20 })
+    const moved = { nx: 0.5, ny: 0.5, radius: 0.03 }
+    bd._feedSyntheticPos(moved)
     expect(positions).toHaveLength(2)
-    expect(positions[1].nx).toBeCloseTo(20 / 128)
-  })
-
-  it('incorporates roiOffsetX/Y into returned position', () => {
-    const bd = new BallDetector(CFG)
-    const positions: { nx: number; ny: number }[] = []
-    bd.onBallDetected(pos => positions.push(pos))
-
-    const blob = { cx: 10, cy: 10, area: 20 }
-    bd._feedSyntheticBlob(blob, 32, 32)
-    bd._feedSyntheticBlob(blob, 32, 32)
-    bd._feedSyntheticBlob(blob, 32, 32)
-    expect(positions[0].nx).toBeCloseTo((32 + 10) / 128)
-    expect(positions[0].ny).toBeCloseTo((32 + 10) / 128)
+    expect(positions[1].nx).toBeCloseTo(0.5)
   })
 
   it('fires onBallLost after 5 consecutive empty frames', () => {
@@ -136,14 +113,10 @@ describe('BallDetector hysteresis', () => {
     const lostCb = vi.fn()
     bd.onBallDetected(() => {})
     bd.onBallLost(lostCb)
-
-    const blob = { cx: 10, cy: 10, area: 20 }
-    bd._feedSyntheticBlob(blob); bd._feedSyntheticBlob(blob); bd._feedSyntheticBlob(blob)
-
-    for (let i = 0; i < 4; i++) bd._feedSyntheticBlob(null)
+    bd._feedSyntheticPos(BALL); bd._feedSyntheticPos(BALL); bd._feedSyntheticPos(BALL)
+    for (let i = 0; i < 4; i++) bd._feedSyntheticPos(null)
     expect(lostCb).not.toHaveBeenCalled()
-
-    bd._feedSyntheticBlob(null)
+    bd._feedSyntheticPos(null)
     expect(lostCb).toHaveBeenCalledTimes(1)
   })
 
@@ -151,7 +124,7 @@ describe('BallDetector hysteresis', () => {
     const bd = new BallDetector(CFG)
     const lostCb = vi.fn()
     bd.onBallLost(lostCb)
-    for (let i = 0; i < 10; i++) bd._feedSyntheticBlob(null)
+    for (let i = 0; i < 10; i++) bd._feedSyntheticPos(null)
     expect(lostCb).not.toHaveBeenCalled()
   })
 
@@ -161,18 +134,14 @@ describe('BallDetector hysteresis', () => {
     const lostCb = vi.fn()
     bd.onBallDetected(detectedCb)
     bd.onBallLost(lostCb)
-
-    const blob = { cx: 10, cy: 10, area: 20 }
-    // First detection: fires on the 3rd consecutive frame
-    bd._feedSyntheticBlob(blob); bd._feedSyntheticBlob(blob); bd._feedSyntheticBlob(blob)
+    // First detection
+    bd._feedSyntheticPos(BALL); bd._feedSyntheticPos(BALL); bd._feedSyntheticPos(BALL)
     expect(detectedCb).toHaveBeenCalledTimes(1)
-
     // Lose it
-    for (let i = 0; i < 5; i++) bd._feedSyntheticBlob(null)
+    for (let i = 0; i < 5; i++) bd._feedSyntheticPos(null)
     expect(lostCb).toHaveBeenCalledTimes(1)
-
-    // Re-detect: needs 3 fresh consecutive frames → fires on the 3rd
-    bd._feedSyntheticBlob(blob); bd._feedSyntheticBlob(blob); bd._feedSyntheticBlob(blob)
+    // Re-detect — needs 3 fresh frames
+    bd._feedSyntheticPos(BALL); bd._feedSyntheticPos(BALL); bd._feedSyntheticPos(BALL)
     expect(detectedCb).toHaveBeenCalledTimes(2)
   })
 })

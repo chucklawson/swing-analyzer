@@ -16,7 +16,7 @@ export interface SwingConfig {
   audioOnlyMode: boolean       // always true now (no motion detection)
   // ball detection
   ballDetectionEnabled: boolean
-  ballBrightnessThreshold: number  // 0-255 luma cutoff
+  ballBrightnessThreshold: number  // luma units above ROI mean (adaptive offset, not absolute)
   ballMinPixels: number            // minimum blob area in 128×128 space
   ballMaxPixels: number            // maximum blob area
   // roi
@@ -34,7 +34,7 @@ export const DEFAULT_CONFIG: SwingConfig = {
   cooldownMs: 7000,
   audioOnlyMode: true,
   ballDetectionEnabled: false,
-  ballBrightnessThreshold: 200,
+  ballBrightnessThreshold: 30,
   ballMinPixels: 4,
   ballMaxPixels: 400,
   roi: { x: 0.2, y: 0.15, w: 0.6, h: 0.7 },

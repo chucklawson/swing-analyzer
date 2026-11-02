@@ -7,21 +7,24 @@ export interface BallPosition {
 }
 
 export interface BallDetectorConfig {
-  brightnessThreshold: number  // 0-255, luma cutoff for bright pixels
-  minBlobPixels: number        // minimum blob area (in 128×128 canvas space)
-  maxBlobPixels: number        // maximum blob area
-  everyNthFrame: number        // analyze every N-th rAF frame
+  // Luma units above the ROI mean required to count as "bright".
+  // Adaptive: a ball only needs to be brighter than its background, not
+  // brighter than some absolute value.  Default 30.
+  brightnessThreshold: number
+  minBlobPixels: number  // minimum blob area in 128×128 ROI-canvas space
+  maxBlobPixels: number  // maximum blob area
+  everyNthFrame: number  // analyze every N-th rAF frame
 }
 
 interface BlobResult {
-  cx: number    // center x in ROI-local pixels
-  cy: number    // center y in ROI-local pixels
+  cx: number    // center x in ROI-canvas pixels [0..127]
+  cy: number    // center y in ROI-canvas pixels [0..127]
   area: number  // pixel count
 }
 
 const CANVAS_SIZE = 128
-const DETECT_FRAMES = 3   // consecutive frames with blob → confirmed
-const LOSE_FRAMES   = 5   // consecutive frames without blob → lost
+const DETECT_FRAMES = 3   // consecutive confirmed frames → onBallDetected
+const LOSE_FRAMES   = 5   // consecutive empty frames    → onBallLost
 
 // Pure function — exported for unit testing.
 export function findBestBlob(
@@ -139,40 +142,58 @@ export class BallDetector {
     const ctx = this.ctx
     if (!video || !ctx || video.readyState < 2 || !this.getRoi) return
 
-    ctx.drawImage(video, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
-
     const roi = this.getRoi()
-    const rx = Math.floor(roi.x * CANVAS_SIZE)
-    const ry = Math.floor(roi.y * CANVAS_SIZE)
-    const rw = Math.max(1, Math.floor(roi.w * CANVAS_SIZE))
-    const rh = Math.max(1, Math.floor(roi.h * CANVAS_SIZE))
+    const vw = video.videoWidth  || CANVAS_SIZE
+    const vh = video.videoHeight || CANVAS_SIZE
 
-    const data = ctx.getImageData(rx, ry, rw, rh).data
-    const n = rw * rh
-    const bright = new Uint8Array(n)
-    const threshold = this.config.brightnessThreshold
+    // Draw only the ROI region stretched to the full canvas.
+    // This gives ~4× better resolution than drawing the full frame and cropping,
+    // which matters for golf balls that may be only a few pixels wide.
+    const sw = roi.w * vw
+    const sh = roi.h * vh
+    if (sw < 1 || sh < 1) return
+    ctx.drawImage(video, roi.x * vw, roi.y * vh, sw, sh, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
+
+    const data = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE).data
+    const n = CANVAS_SIZE * CANVAS_SIZE
+
+    // Adaptive threshold: mark pixels brighter than (mean + offset).
+    // This handles any lighting condition — the ball only needs to be brighter
+    // than its immediate background, not brighter than an absolute value.
+    let sumLuma = 0
     for (let i = 0; i < n; i++) {
-      bright[i] = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) > threshold ? 1 : 0
+      sumLuma += 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]
+    }
+    const lumaFloor = sumLuma / n + this.config.brightnessThreshold
+
+    const bright = new Uint8Array(n)
+    for (let i = 0; i < n; i++) {
+      bright[i] = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) > lumaFloor ? 1 : 0
     }
 
-    this._processBlob(findBestBlob(bright, rw, rh, this.config.minBlobPixels, this.config.maxBlobPixels), rx, ry)
+    const blob = findBestBlob(bright, CANVAS_SIZE, CANVAS_SIZE, this.config.minBlobPixels, this.config.maxBlobPixels)
+
+    if (blob) {
+      // Convert ROI-canvas coordinates to full-frame normalized coordinates
+      const nx = roi.x + (blob.cx / CANVAS_SIZE) * roi.w
+      const ny = roi.y + (blob.cy / CANVAS_SIZE) * roi.h
+      const radius = Math.sqrt(blob.area / Math.PI) / CANVAS_SIZE * Math.min(roi.w, roi.h)
+      this._processPos({ nx, ny, radius })
+    } else {
+      this._processPos(null)
+    }
   }
 
   // Bypasses video/canvas capture — feeds the state machine directly (for testing).
-  _feedSyntheticBlob(blob: BlobResult | null, roiOffsetX = 0, roiOffsetY = 0): void {
-    this._processBlob(blob, roiOffsetX, roiOffsetY)
+  _feedSyntheticPos(pos: BallPosition | null): void {
+    this._processPos(pos)
   }
 
-  private _processBlob(blob: BlobResult | null, rx: number, ry: number): void {
-    if (blob) {
+  private _processPos(pos: BallPosition | null): void {
+    if (pos) {
       this.consecutiveWithout = 0
       this.consecutiveWith++
       if (this.consecutiveWith >= DETECT_FRAMES) {
-        const pos: BallPosition = {
-          nx: (rx + blob.cx) / CANVAS_SIZE,
-          ny: (ry + blob.cy) / CANVAS_SIZE,
-          radius: Math.sqrt(blob.area / Math.PI) / CANVAS_SIZE,
-        }
         this._currentPos = pos
         if (!this.ballConfirmed) this.ballConfirmed = true
         this.onDetectedCb?.(pos)
