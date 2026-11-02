@@ -14,6 +14,11 @@ export interface SwingConfig {
   audioLookbackMs: number      // how far back to look for motion when audio impact fires
   cooldownMs: number           // ms before fusion can fire again
   audioOnlyMode: boolean       // always true now (no motion detection)
+  // ball detection
+  ballDetectionEnabled: boolean
+  ballBrightnessThreshold: number  // 0-255 luma cutoff
+  ballMinPixels: number            // minimum blob area in 128×128 space
+  ballMaxPixels: number            // maximum blob area
   // roi
   roi: NormalizedRect
   // ui
@@ -28,6 +33,10 @@ export const DEFAULT_CONFIG: SwingConfig = {
   audioLookbackMs: 2000,
   cooldownMs: 7000,
   audioOnlyMode: true,
+  ballDetectionEnabled: false,
+  ballBrightnessThreshold: 200,
+  ballMinPixels: 4,
+  ballMaxPixels: 400,
   roi: { x: 0.2, y: 0.15, w: 0.6, h: 0.7 },
   showDebugPanel: false,
   traceEnabled: false,
@@ -41,7 +50,7 @@ export function loadConfig(): SwingConfig {
     if (!raw) return { ...DEFAULT_CONFIG }
     const saved = JSON.parse(raw) as Partial<SwingConfig>
     // audioOnlyMode is always true — motion detection is not active
-    return { ...DEFAULT_CONFIG, ...saved, audioOnlyMode: true }
+    return { ...DEFAULT_CONFIG, ...saved, audioOnlyMode: true, ballDetectionEnabled: false }
   } catch {
     return { ...DEFAULT_CONFIG }
   }

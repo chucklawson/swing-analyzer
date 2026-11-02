@@ -1,7 +1,9 @@
 import { useRef, useEffect, useCallback } from 'react'
 import type { NormalizedRect } from '../lib/swingConfig.ts'
+import type { BallPosition } from '../lib/ballDetector.ts'
 import {
   cssToNormalized,
+  normalizedToCss,
   normalizedRectToCss,
   type VideoFitInfo,
 } from '../lib/roiCoords.ts'
@@ -10,7 +12,8 @@ interface Props {
   roi: NormalizedRect
   onRoiChange: (roi: NormalizedRect) => void
   fitInfo: VideoFitInfo
-  active: boolean  // false = dim, no interaction
+  active: boolean       // false = dim, no interaction
+  ballPos: BallPosition | null
 }
 
 type DragMode =
@@ -24,7 +27,7 @@ type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 const HANDLE_RADIUS = 8
 const MIN_NORM = 0.05  // minimum ROI dimension in normalised space
 
-export default function RoiOverlay({ roi, onRoiChange, fitInfo, active }: Props) {
+export default function RoiOverlay({ roi, onRoiChange, fitInfo, active, ballPos }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dragRef = useRef<DragMode>({ kind: 'none' })
 
@@ -52,6 +55,28 @@ export default function RoiOverlay({ roi, onRoiChange, fitInfo, active }: Props)
 
     if (!active) return
 
+    // Ball crosshair — shown whenever ball is detected (regardless of drag state)
+    if (ballPos !== null) {
+      const [bx, by] = normalizedToCss(ballPos.nx, ballPos.ny, fitInfo)
+      const [lx] = normalizedToCss(0, 0, fitInfo)
+      const [rx] = normalizedToCss(1, 0, fitInfo)
+      const ballR = Math.max(8, ballPos.radius * (rx - lx))
+      const ARM = 20
+
+      ctx.strokeStyle = 'rgba(34,197,94,0.9)'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(bx - ARM, by); ctx.lineTo(bx + ARM, by)
+      ctx.moveTo(bx, by - ARM); ctx.lineTo(bx, by + ARM)
+      ctx.stroke()
+
+      ctx.beginPath()
+      ctx.arc(bx, by, ballR, 0, Math.PI * 2)
+      ctx.strokeStyle = 'rgba(34,197,94,0.7)'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+    }
+
     // Handles are only shown while the pointer is held down so they don't
     // clutter the view during normal recording.
     if (dragRef.current.kind === 'none') return
@@ -66,7 +91,7 @@ export default function RoiOverlay({ roi, onRoiChange, fitInfo, active }: Props)
       ctx.lineWidth = 1
       ctx.stroke()
     }
-  }, [roi, fitInfo, active])
+  }, [roi, fitInfo, active, ballPos])
 
   useEffect(() => { draw() }, [draw])
 

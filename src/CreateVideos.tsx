@@ -4,6 +4,7 @@ import { loadConfig, saveConfig, DEFAULT_CONFIG, type SwingConfig, type Normaliz
 import { AudioDetector } from './lib/audioDetector.ts'
 import { SwingFusion } from './lib/swingFusion.ts'
 import { TraceRecorder } from './lib/traceRecorder.ts'
+import { BallDetector, type BallPosition } from './lib/ballDetector.ts'
 import RoiOverlay from './components/RoiOverlay.tsx'
 import DebugPanel from './components/DebugPanel.tsx'
 import type { VideoFitInfo } from './lib/roiCoords.ts'
@@ -204,6 +205,10 @@ export default function CreateVideos() {
   const mimeRef           = useRef('')
   const facingRef         = useRef<'environment' | 'user'>('environment')
   const isFrontRef        = useRef(false)
+  const ballDetectorRef   = useRef<BallDetector | null>(null)
+  const roiRef            = useRef<NormalizedRect>(loadConfig().roi)
+  const armedRef          = useRef(false)
+  const configRef         = useRef<SwingConfig>(loadConfig())
 
   const [status,       setStatus]       = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing'>('idle')
   const [level,        setLevel]        = useState(0)
@@ -221,6 +226,8 @@ export default function CreateVideos() {
     objectFit: 'cover',
   })
   const [isFront,      setIsFront]      = useState(false)
+  const [armed,        setArmed]        = useState(false)
+  const [ballPos,      setBallPos]      = useState<BallPosition | null>(null)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasFsApi = 'showDirectoryPicker' in (window as any)
@@ -228,6 +235,9 @@ export default function CreateVideos() {
   useEffect(() => () => teardown(), [])
   // Persist config when it changes
   useEffect(() => { saveConfig({ ...config, roi }) }, [config, roi])
+  // Keep refs in sync so callbacks always read the latest values
+  useEffect(() => { roiRef.current = roi }, [roi])
+  useEffect(() => { configRef.current = config }, [config])
 
   // Keep fitInfo in sync with the video element's actual dimensions
   const updateFitInfo = useCallback(() => {
@@ -323,7 +333,10 @@ export default function CreateVideos() {
         cooldownMs:      config.cooldownMs,
         audioOnlyMode:   true,
       })
-      fusion.onSwing((audioTs) => trigger(audioTs))
+      fusion.onSwing((audioTs) => {
+        if (configRef.current.ballDetectionEnabled && !armedRef.current) return
+        trigger(audioTs)
+      })
       fusion.onRejected((reason, ts) => {
         const label = reason === 'audio-only' ? 'rejected: audio only'
           : reason === 'motion-only' ? 'rejected: motion only'
@@ -338,6 +351,19 @@ export default function CreateVideos() {
 
       startAudio(stream)
       startRollingRecorder()
+
+      if (config.ballDetectionEnabled && videoRef.current) {
+        const bd = new BallDetector({
+          brightnessThreshold: config.ballBrightnessThreshold,
+          minBlobPixels: config.ballMinPixels,
+          maxBlobPixels: config.ballMaxPixels,
+          everyNthFrame: 2,
+        })
+        bd.onBallDetected(pos => { armedRef.current = true;  setArmed(true);  setBallPos(pos) })
+        bd.onBallLost(()    => { armedRef.current = false; setArmed(false); setBallPos(null) })
+        bd.start(videoRef.current, () => roiRef.current)
+        ballDetectorRef.current = bd
+      }
 
 
       // Keep fitInfo in sync after video metadata loads
@@ -364,6 +390,8 @@ export default function CreateVideos() {
     setFacing(next)
     audioDetectorRef.current?.stop();  audioDetectorRef.current  = null
     swingFusionRef.current?.reset();   swingFusionRef.current    = null
+    ballDetectorRef.current?.stop();   ballDetectorRef.current   = null
+    armedRef.current = false; setArmed(false); setBallPos(null)
     stopRollingRecorder()
     streamRef.current?.getTracks().forEach(t => t.stop())
     audioCtxRef.current?.close()
@@ -581,6 +609,8 @@ export default function CreateVideos() {
     if (reviewTimeoutRef.current) clearTimeout(reviewTimeoutRef.current)
     audioDetectorRef.current?.stop();  audioDetectorRef.current  = null
     swingFusionRef.current?.reset();   swingFusionRef.current    = null
+    ballDetectorRef.current?.stop();   ballDetectorRef.current   = null
+    armedRef.current = false
     stopRollingRecorder()
     streamRef.current?.getTracks().forEach(t => t.stop())
     audioCtxRef.current?.close()
@@ -595,6 +625,8 @@ export default function CreateVideos() {
     setStatus('idle')
     setReviewTap(false)
     setLevel(0)
+    setArmed(false)
+    setBallPos(null)
   }
 
   const active = status === 'listening' || status === 'recording' || status === 'reviewing'
@@ -752,6 +784,7 @@ export default function CreateVideos() {
           onRoiChange={setRoi}
           fitInfo={fitInfo}
           active={status === 'listening'}
+          ballPos={config.ballDetectionEnabled ? ballPos : null}
         />
 
         {/* Debug panel — zIndex 4 */}
@@ -782,6 +815,12 @@ export default function CreateVideos() {
             <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
               <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
               <span className="text-white text-sm font-medium">Listening</span>
+            </div>
+          )}
+          {status === 'listening' && config.ballDetectionEnabled && (
+            <div className="absolute top-11 left-3 flex items-center gap-2 bg-black/50 rounded-full px-3 py-1">
+              <div className={`w-2 h-2 rounded-full ${armed ? 'bg-green-400' : 'bg-yellow-400'}`} />
+              <span className="text-white text-sm font-medium">{armed ? 'Armed' : 'Waiting for ball'}</span>
             </div>
           )}
           {status === 'reviewing' && (
@@ -937,6 +976,36 @@ export default function CreateVideos() {
             />
             <span className="text-gray-500 text-sm w-12 text-right">{config.fusionWindowMs} ms</span>
           </div>
+
+          {/* Ball detection toggle */}
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={config.ballDetectionEnabled}
+              onChange={e => {
+                const v = e.target.checked
+                setConfig(prev => ({ ...prev, ballDetectionEnabled: v }))
+                if (!v) {
+                  ballDetectorRef.current?.stop()
+                  ballDetectorRef.current = null
+                  armedRef.current = false; setArmed(false); setBallPos(null)
+                } else if (videoRef.current) {
+                  const bd = new BallDetector({
+                    brightnessThreshold: config.ballBrightnessThreshold,
+                    minBlobPixels: config.ballMinPixels,
+                    maxBlobPixels: config.ballMaxPixels,
+                    everyNthFrame: 2,
+                  })
+                  bd.onBallDetected(pos => { armedRef.current = true;  setArmed(true);  setBallPos(pos) })
+                  bd.onBallLost(()    => { armedRef.current = false; setArmed(false); setBallPos(null) })
+                  bd.start(videoRef.current, () => roiRef.current)
+                  ballDetectorRef.current = bd
+                }
+              }}
+              className="w-4 h-4 accent-green-400 cursor-pointer"
+            />
+            <span className="text-gray-300 text-sm">Require ball in ROI before saving</span>
+          </label>
 
           {/* Action row: ROI hint, Calibrate, Debug, Reset box, Export */}
           <div className="flex flex-wrap gap-2 items-center justify-between">
