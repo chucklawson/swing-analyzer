@@ -10,8 +10,6 @@ interface Props {
   roi: NormalizedRect
   onRoiChange: (roi: NormalizedRect) => void
   fitInfo: VideoFitInfo
-  motionScore: number
-  spikeActive: boolean
   active: boolean  // false = dim, no interaction
 }
 
@@ -26,7 +24,7 @@ type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 const HANDLE_RADIUS = 8
 const MIN_NORM = 0.05  // minimum ROI dimension in normalised space
 
-export default function RoiOverlay({ roi, onRoiChange, fitInfo, motionScore: _motionScore, spikeActive, active }: Props) {
+export default function RoiOverlay({ roi, onRoiChange, fitInfo, active }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dragRef = useRef<DragMode>({ kind: 'none' })
 
@@ -44,15 +42,11 @@ export default function RoiOverlay({ roi, onRoiChange, fitInfo, motionScore: _mo
     const alpha = active ? 1 : 0.4
 
     // Fill
-    ctx.fillStyle = spikeActive
-      ? `rgba(34,197,94,${0.15 * alpha})`   // green tint on spike
-      : `rgba(255,255,255,${0.05 * alpha})`
+    ctx.fillStyle = `rgba(255,255,255,${0.05 * alpha})`
     ctx.fillRect(cssRoi.x, cssRoi.y, cssRoi.w, cssRoi.h)
 
     // Border
-    ctx.strokeStyle = spikeActive
-      ? `rgba(34,197,94,${0.9 * alpha})`
-      : `rgba(255,255,255,${0.7 * alpha})`
+    ctx.strokeStyle = `rgba(255,255,255,${0.7 * alpha})`
     ctx.lineWidth = 2
     ctx.strokeRect(cssRoi.x, cssRoi.y, cssRoi.w, cssRoi.h)
 
@@ -72,7 +66,7 @@ export default function RoiOverlay({ roi, onRoiChange, fitInfo, motionScore: _mo
       ctx.lineWidth = 1
       ctx.stroke()
     }
-  }, [roi, fitInfo, active, spikeActive])
+  }, [roi, fitInfo, active])
 
   useEffect(() => { draw() }, [draw])
 

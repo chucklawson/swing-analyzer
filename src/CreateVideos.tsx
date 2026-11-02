@@ -1,7 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadConfig, saveConfig, DEFAULT_CONFIG, type SwingConfig, type NormalizedRect } from './lib/swingConfig.ts'
-import { MotionDetector } from './lib/motionDetector.ts'
 import { AudioDetector } from './lib/audioDetector.ts'
 import { SwingFusion } from './lib/swingFusion.ts'
 import { TraceRecorder } from './lib/traceRecorder.ts'
@@ -186,7 +185,6 @@ export default function CreateVideos() {
   const streamRef         = useRef<MediaStream | null>(null)
   const audioCtxRef       = useRef<AudioContext | null>(null)
   const analyserRef       = useRef<AnalyserNode | null>(null)
-  const motionDetectorRef = useRef<MotionDetector | null>(null)
   const audioDetectorRef  = useRef<AudioDetector | null>(null)
   const swingFusionRef    = useRef<SwingFusion | null>(null)
   const traceRecorderRef  = useRef<TraceRecorder>(new TraceRecorder())
@@ -207,7 +205,6 @@ export default function CreateVideos() {
   const mimeRef           = useRef('')
   const facingRef         = useRef<'environment' | 'user'>('environment')
   const isFrontRef        = useRef(false)
-  const roiRef            = useRef<NormalizedRect>(loadConfig().roi)
 
   const [status,       setStatus]       = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing' | 'calibrating'>('idle')
   const [level,        setLevel]        = useState(0)
@@ -218,8 +215,6 @@ export default function CreateVideos() {
   const [config,       setConfig]       = useState<SwingConfig>(() => loadConfig())
   const [roi,          setRoi]          = useState<NormalizedRect>(() => loadConfig().roi)
   const [debugOpen,    setDebugOpen]    = useState(false)
-  const [motionScore,  setMotionScore]  = useState(0)
-  const [spikeActive,  setSpikeActive]  = useState(false)
   const [fusionLog,    setFusionLog]    = useState<string[]>([])
   const [fitInfo,      setFitInfo]      = useState<VideoFitInfo>({
     containerW: 640, containerH: 360,
@@ -234,8 +229,6 @@ export default function CreateVideos() {
   const hasFsApi = 'showDirectoryPicker' in (window as any)
 
   useEffect(() => () => teardown(), [])
-  // Keep roiRef in sync so the motion detector always uses the latest drawn ROI
-  useEffect(() => { roiRef.current = roi }, [roi])
   // Persist config when it changes
   useEffect(() => { saveConfig({ ...config, roi }) }, [config, roi])
 
@@ -257,12 +250,11 @@ export default function CreateVideos() {
   }, [])
 
   async function handleCalibrate() {
-    const md = motionDetectorRef.current
     const ad = audioDetectorRef.current
-    if (!md || !ad) return
+    if (!ad) return
     setCalibApplied(false)
     setStatus('calibrating')
-    const result = await runCalibration(md, ad, 3000)
+    const result = await runCalibration(null, ad, 3000)
     setCalibResult(result)
     setStatus('listening')
   }
@@ -271,10 +263,8 @@ export default function CreateVideos() {
     if (!calibResult) return
     setConfig(prev => ({
       ...prev,
-      pixelDiffThreshold: calibResult.suggestedPixelDiffThreshold,
-      audioSpikeRatio:    calibResult.suggestedAudioSpikeRatio,
+      audioSpikeRatio: calibResult.suggestedAudioSpikeRatio,
     }))
-    motionDetectorRef.current?.updateConfig({ pixelDiffThreshold: calibResult.suggestedPixelDiffThreshold })
     audioDetectorRef.current?.updateConfig({ audioSpikeRatio: calibResult.suggestedAudioSpikeRatio })
     setCalibApplied(true)
   }
@@ -364,8 +354,7 @@ export default function CreateVideos() {
         fusionWindowMs:  config.fusionWindowMs,
         audioLookbackMs: config.audioLookbackMs,
         cooldownMs:      config.cooldownMs,
-        motionOnlyMode:  config.motionOnlyMode,
-        audioOnlyMode:   config.audioOnlyMode,
+        audioOnlyMode:   true,
       })
       fusion.onSwing((audioTs) => trigger(audioTs))
       fusion.onRejected((reason, ts) => {
@@ -375,7 +364,7 @@ export default function CreateVideos() {
           : 'rejected: ordering'
         const entry = `${new Date(ts).toLocaleTimeString()} ${label}`
         setFusionLog(prev => [...prev.slice(-19), entry])
-        traceRecorderRef.current.record({ ts, motionScore: motionScore, audioLevel: level, decision: reason })
+        traceRecorderRef.current.record({ ts, motionScore: 0, audioLevel: level, decision: reason })
       })
       fusion.onCooldownEnd(() => { cooldownRef.current = false })
       swingFusionRef.current = fusion
@@ -383,31 +372,6 @@ export default function CreateVideos() {
       startAudio(stream)
       startRollingRecorder()
 
-      // Start motion detector after video element is available
-      const videoEl = videoRef.current
-      if (videoEl) {
-        const md = new MotionDetector({
-          analysisSize:      config.analysisSize,
-          pixelDiffThreshold: config.pixelDiffThreshold,
-          spikeRatio:        config.spikeRatio,
-          baselineWindowSize: config.baselineWindowSize,
-          everyNthFrame:     config.everyNthFrame,
-        })
-        md.onScoreUpdate((score) => {
-          setMotionScore(score)
-          traceRecorderRef.current.record({ ts: Date.now(), motionScore: score, audioLevel: level })
-        })
-        md.onSpike((ts, score) => {
-          setSpikeActive(true)
-          setTimeout(() => setSpikeActive(false), 200)
-          fusion.feedMotionSpike(ts)
-          const entry = `${new Date(ts).toLocaleTimeString()} motion spike (${(score * 100).toFixed(1)}%)`
-          setFusionLog(prev => [...prev.slice(-19), entry])
-          traceRecorderRef.current.record({ ts, motionScore: score, audioLevel: level, decision: 'motion-spike' })
-        })
-        md.start(videoEl, () => roiRef.current)
-        motionDetectorRef.current = md
-      }
 
       // Keep fitInfo in sync after video metadata loads
       if (videoRef.current) {
@@ -432,7 +396,6 @@ export default function CreateVideos() {
     facingRef.current = next
     setFacing(next)
     audioDetectorRef.current?.stop();  audioDetectorRef.current  = null
-    motionDetectorRef.current?.stop(); motionDetectorRef.current = null
     swingFusionRef.current?.reset();   swingFusionRef.current    = null
     stopRollingRecorder()
     streamRef.current?.getTracks().forEach(t => t.stop())
@@ -468,7 +431,7 @@ export default function CreateVideos() {
       fusion.feedAudioImpact(ts, pct)
       const entry = `${new Date(ts).toLocaleTimeString()} FIRED audio impact (${pct}%)`
       setFusionLog(prev => [...prev.slice(-19), entry])
-      traceRecorderRef.current.record({ ts, motionScore: motionScore, audioLevel: pct, decision: 'audio-impact' })
+      traceRecorderRef.current.record({ ts, motionScore: 0, audioLevel: pct, decision: 'audio-impact' })
     })
     audioDetectorRef.current = detector
     detector.start()
@@ -650,7 +613,6 @@ export default function CreateVideos() {
     if (postRollTimerRef.current) clearTimeout(postRollTimerRef.current)
     if (reviewTimeoutRef.current) clearTimeout(reviewTimeoutRef.current)
     audioDetectorRef.current?.stop();  audioDetectorRef.current  = null
-    motionDetectorRef.current?.stop(); motionDetectorRef.current = null
     swingFusionRef.current?.reset();   swingFusionRef.current    = null
     stopRollingRecorder()
     streamRef.current?.getTracks().forEach(t => t.stop())
@@ -841,21 +803,15 @@ export default function CreateVideos() {
           roi={roi}
           onRoiChange={setRoi}
           fitInfo={fitInfo}
-          motionScore={motionScore}
-          spikeActive={spikeActive}
           active={status === 'listening'}
         />
 
         {/* Debug panel — zIndex 4 */}
         {debugOpen && (
           <DebugPanel
-            motionScore={motionScore}
             audioLevel={level}
             config={config}
             fusionLog={fusionLog}
-            calibrationSummary={calibResult
-              ? `motion σ=${(calibResult.motionStddev * 100).toFixed(1)}% audio bg=${calibResult.audioBackground.toFixed(0)}%`
-              : undefined}
           />
         )}
 
@@ -1028,22 +984,10 @@ export default function CreateVideos() {
             <div className="flex-1 h-3 bg-gray-800 rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full transition-all duration-75"
-                style={{ width: `${level}%`, backgroundColor: spikeActive ? '#ef4444' : '#22c55e' }}
+                style={{ width: `${level}%`, backgroundColor: '#22c55e' }}
               />
             </div>
             <span className="text-gray-500 text-sm w-10 text-right">{level}%</span>
-          </div>
-
-          {/* Motion score bar */}
-          <div className="flex items-center gap-3">
-            <span className="text-gray-400 text-sm w-20 shrink-0">Motion</span>
-            <div className="flex-1 h-3 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-75"
-                style={{ width: `${Math.min(100, motionScore * 100)}%`, backgroundColor: spikeActive ? '#22c55e' : '#3b82f6' }}
-              />
-            </div>
-            <span className="text-gray-500 text-sm w-10 text-right">{(motionScore * 100).toFixed(1)}%</span>
           </div>
 
           {/* Audio sensitivity slider */}
@@ -1117,9 +1061,6 @@ export default function CreateVideos() {
             <div className="bg-gray-800 rounded-xl p-3 text-xs flex flex-col gap-1">
               <p className="text-yellow-400 font-medium">Calibration result</p>
               <p className="text-gray-300">
-                Motion idle: mean={( calibResult.motionMean * 100).toFixed(2)}% σ={( calibResult.motionStddev * 100).toFixed(2)}%
-              </p>
-              <p className="text-gray-300">
                 Audio background: {calibResult.audioBackground.toFixed(0)}%
               </p>
               <button
@@ -1136,37 +1077,8 @@ export default function CreateVideos() {
             </div>
           )}
 
-          {/* Motion-only mode toggle */}
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={config.motionOnlyMode}
-              onChange={e => {
-                const v = e.target.checked
-                setConfig(prev => ({ ...prev, motionOnlyMode: v }))
-                swingFusionRef.current?.updateConfig({ motionOnlyMode: v })
-              }}
-              className="accent-green-400"
-            />
-            <span className="text-gray-400 text-xs">Record practice swings (motion only, no audio required)</span>
-          </label>
-
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={config.audioOnlyMode}
-              onChange={e => {
-                const v = e.target.checked
-                setConfig(prev => ({ ...prev, audioOnlyMode: v }))
-                swingFusionRef.current?.updateConfig({ audioOnlyMode: v })
-              }}
-              className="accent-yellow-400"
-            />
-            <span className="text-gray-400 text-xs">Audio trigger only — ignore motion (diagnostic)</span>
-          </label>
-
           <p className="text-gray-600 text-xs text-center">
-            Swing fires when motion + audio occur within window · {PRE_ROLL_MS/1000}s pre-roll · {POST_ROLL_MS/1000}s post-roll
+            Clip saves on audio impact · {PRE_ROLL_MS/1000}s pre-roll · {POST_ROLL_MS/1000}s post-roll
           </p>
         </div>
       )}

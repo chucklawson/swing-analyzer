@@ -5,7 +5,7 @@ export type RejectionReason = 'audio-only' | 'motion-only' | 'cooldown' | 'order
 type SwingCallback    = (audioTs: number) => void
 type RejectedCallback = (reason: RejectionReason, ts: number) => void
 
-export type SwingFusionConfig = Pick<SwingConfig, 'fusionWindowMs' | 'audioLookbackMs' | 'cooldownMs' | 'motionOnlyMode' | 'audioOnlyMode'>
+export type SwingFusionConfig = Pick<SwingConfig, 'fusionWindowMs' | 'audioLookbackMs' | 'cooldownMs' | 'audioOnlyMode'>
 
 export class SwingFusion {
   private config: SwingFusionConfig
@@ -66,16 +66,6 @@ export class SwingFusion {
       }
     }
 
-    if (this.config.motionOnlyMode) {
-      if (this.motionOnlyTimer !== null) clearTimeout(this.motionOnlyTimer)
-      this.motionOnlyTimer = setTimeout(() => {
-        this.motionOnlyTimer = null
-        if (this.inCooldown()) return
-        if (this.lastMotionSpikeTs === ts) {
-          this.fire(ts)
-        }
-      }, this.config.fusionWindowMs + 50)
-    }
   }
 
   feedAudioImpact(audioTs: number, _level: number) {

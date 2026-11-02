@@ -6,7 +6,6 @@ function makeFusion(overrides: Partial<SwingFusionConfig> = {}) {
     fusionWindowMs: 400,
     audioLookbackMs: 400,
     cooldownMs: 3000,
-    motionOnlyMode: false,
     audioOnlyMode: false,
     ...overrides,
   })
@@ -80,7 +79,6 @@ describe('SwingFusion', () => {
     const swings: number[] = []
     f.onSwing(() => swings.push(1))
 
-    // No motion spike at all, just a loud noise
     f.feedAudioImpact(5000, 80)
     expect(swings).toHaveLength(0)
     expect(rejections).toContain('audio-only')
@@ -91,7 +89,6 @@ describe('SwingFusion', () => {
     const rejections: RejectionReason[] = []
     f.onRejected(r => rejections.push(r))
 
-    // Motion at 1200, audio at 1000: audio is 200ms before motion — stored for bidirectional
     f.feedMotionSpike(1200)
     f.feedAudioImpact(1000, 50)
     expect(rejections).toContain('audio-only')
@@ -104,12 +101,10 @@ describe('SwingFusion', () => {
     f.onSwing(() => swings.push(1))
     f.onRejected(r => rejections.push(r))
 
-    // First swing fires
     f.feedMotionSpike(1000)
     f.feedAudioImpact(1200, 50)
     expect(swings).toHaveLength(1)
 
-    // Second attempt during cooldown is rejected
     f.feedMotionSpike(2000)
     f.feedAudioImpact(2200, 50)
     expect(swings).toHaveLength(1)
@@ -125,7 +120,6 @@ describe('SwingFusion', () => {
     f.feedAudioImpact(1200, 50)
     expect(swings).toHaveLength(1)
 
-    // Advance past cooldown
     vi.advanceTimersByTime(3100)
 
     f.feedMotionSpike(4500)
@@ -146,29 +140,29 @@ describe('SwingFusion', () => {
     expect(ended).toBe(true)
   })
 
-  it('motion-only mode fires after window with no audio', () => {
-    const f = makeFusion({ motionOnlyMode: true, fusionWindowMs: 400 })
+  it('audioOnlyMode fires immediately on audio with no motion check', () => {
+    const f = makeFusion({ audioOnlyMode: true })
     const swings: number[] = []
-    f.onSwing(() => swings.push(1))
+    f.onSwing(ts => swings.push(ts))
 
-    f.feedMotionSpike(1000)
-    expect(swings).toHaveLength(0)
-
-    vi.advanceTimersByTime(500)  // > 400ms + 50ms buffer
+    f.feedAudioImpact(1000, 80)
     expect(swings).toHaveLength(1)
+    expect(swings[0]).toBe(1000)
   })
 
-  it('motion-only mode does NOT double-fire if audio also arrives', () => {
-    const f = makeFusion({ motionOnlyMode: true, fusionWindowMs: 400 })
+  it('audioOnlyMode still respects cooldown', () => {
+    const f = makeFusion({ audioOnlyMode: true, cooldownMs: 3000 })
     const swings: number[] = []
+    const rejections: RejectionReason[] = []
     f.onSwing(() => swings.push(1))
+    f.onRejected(r => rejections.push(r))
 
-    f.feedMotionSpike(1000)
-    f.feedAudioImpact(1200, 50)  // audio arrives within window → fires immediately
+    f.feedAudioImpact(1000, 80)
     expect(swings).toHaveLength(1)
 
-    vi.advanceTimersByTime(500)  // motion-only timer should have been cancelled
+    f.feedAudioImpact(2000, 80)
     expect(swings).toHaveLength(1)
+    expect(rejections).toContain('cooldown')
   })
 
   it('reset clears state and allows immediate re-fire', () => {
@@ -193,7 +187,6 @@ describe('SwingFusion', () => {
     f.onSwing(() => swings.push(1))
     f.onRejected(r => rejections.push(r))
 
-    // Motion at 1000, audio at 995 (5ms before motion — within 50ms tolerance)
     f.feedMotionSpike(1000)
     f.feedAudioImpact(995, 50)
     expect(swings).toHaveLength(1)
@@ -207,14 +200,13 @@ describe('SwingFusion', () => {
     f.onSwing(ts => swings.push(ts))
     f.onRejected(r => rejections.push(r))
 
-    // Audio RAF fires at T=16ms before RVFC fires at T=33ms (typical iOS timing)
-    f.feedAudioImpact(1000, 80)          // rejected: no motion spike yet
+    f.feedAudioImpact(1000, 80)
     expect(rejections).toContain('audio-only')
     expect(swings).toHaveLength(0)
 
-    f.feedMotionSpike(1033)              // follow-through frame 33ms later
+    f.feedMotionSpike(1033)
     expect(swings).toHaveLength(1)
-    expect(swings[0]).toBe(1000)         // clip centred on the audio impact timestamp
+    expect(swings[0]).toBe(1000)
   })
 
   it('does not fire on stale audio when motion arrives outside fusionWindowMs (bidirectional)', () => {
@@ -222,8 +214,8 @@ describe('SwingFusion', () => {
     const swings: number[] = []
     f.onSwing(() => swings.push(1))
 
-    f.feedAudioImpact(1000, 80)   // rejected: no motion
-    f.feedMotionSpike(1500)       // 500ms after audio — outside 400ms bidirectional window
+    f.feedAudioImpact(1000, 80)
+    f.feedMotionSpike(1500)
     expect(swings).toHaveLength(0)
   })
 })
