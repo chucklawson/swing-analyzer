@@ -229,6 +229,10 @@ export default function CreateVideos() {
   const [isFront,      setIsFront]      = useState(false)
   const [armed,        setArmed]        = useState(false)
   const [bgLevel,      setBgLevel]      = useState(0)
+  const [profiles,     setProfiles]     = useState<{ F: boolean; D: boolean }>(() => ({
+    F: !!localStorage.getItem('swing-config-profile-F'),
+    D: !!localStorage.getItem('swing-config-profile-D'),
+  }))
   const [ballPos,      setBallPos]      = useState<BallPosition | null>(null)
   const ballDebugCanvasRef = useRef<HTMLCanvasElement>(null)
   const [debugPos,     setDebugPos]     = useState({ x: 10, y: 60 })
@@ -268,6 +272,25 @@ export default function CreateVideos() {
       objectFit: 'cover',
     })
   }, [])
+
+  function saveProfile(type: 'F' | 'D') {
+    localStorage.setItem(`swing-config-profile-${type}`, JSON.stringify({ ...config, roi }))
+    setProfiles(prev => ({ ...prev, [type]: true }))
+  }
+
+  function loadProfile(type: 'F' | 'D') {
+    const raw = localStorage.getItem(`swing-config-profile-${type}`)
+    if (!raw) return
+    try {
+      const saved = JSON.parse(raw) as SwingConfig
+      setConfig(saved)
+      setRoi(saved.roi)
+      audioDetectorRef.current?.updateConfig({ audioSpikeRatio: saved.audioSpikeRatio, audioBackgroundWindow: saved.audioBackgroundWindow })
+      swingFusionRef.current?.updateConfig({ cooldownMs: saved.cooldownMs, fusionWindowMs: saved.fusionWindowMs })
+      if (gainNodeRef.current) gainNodeRef.current.gain.value = saved.micGain
+      ballDetectorRef.current?.updateConfig({ brightnessThreshold: saved.ballBrightnessThreshold, minBlobPixels: saved.ballMinPixels, maxBlobPixels: saved.ballMaxPixels })
+    } catch { /* ignore corrupt data */ }
+  }
 
   function exportTrace() {
     const json = traceRecorderRef.current.export()
@@ -1148,6 +1171,30 @@ export default function CreateVideos() {
               </label>
             </>
           )}
+
+          {/* View profiles */}
+          <div className="flex items-center gap-3">
+            <span className="text-gray-400 text-sm w-20 shrink-0">Profiles</span>
+            <div className="flex gap-2 flex-wrap flex-1">
+              {(['F', 'D'] as const).map(type => (
+                <div key={type} className="flex gap-1">
+                  <button
+                    onClick={() => saveProfile(type)}
+                    className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs cursor-pointer"
+                  >
+                    Save {type === 'F' ? 'Front' : 'DTL'}
+                  </button>
+                  <button
+                    onClick={() => loadProfile(type)}
+                    disabled={!profiles[type]}
+                    className="px-3 py-1.5 rounded-lg text-xs cursor-pointer disabled:opacity-30 disabled:cursor-default bg-green-800 hover:bg-green-700 text-green-200"
+                  >
+                    Load {type === 'F' ? 'Front' : 'DTL'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {/* Action row: ROI hint, Calibrate, Debug, Reset box, Export */}
           <div className="flex flex-wrap gap-2 items-center justify-between">
