@@ -227,6 +227,7 @@ export default function CreateVideos() {
   })
   const [isFront,      setIsFront]      = useState(false)
   const [armed,        setArmed]        = useState(false)
+  const [bgLevel,      setBgLevel]      = useState(0)
   const [ballPos,      setBallPos]      = useState<BallPosition | null>(null)
   const ballDebugCanvasRef = useRef<HTMLCanvasElement>(null)
   const [debugPos,     setDebugPos]     = useState({ x: 10, y: 60 })
@@ -430,7 +431,7 @@ export default function CreateVideos() {
       audioSpikeRatio:       config.audioSpikeRatio,
       audioBackgroundWindow: config.audioBackgroundWindow,
     })
-    detector.onLevelUpdate((pct) => setLevel(pct))
+    detector.onLevelUpdate((pct) => { setLevel(pct); setBgLevel(detector.backgroundLevel()) })
     detector.onImpact((ts, pct) => {
       const fusion = swingFusionRef.current
       if (!fusion) return
@@ -1011,10 +1012,16 @@ export default function CreateVideos() {
           {/* Audio level bar */}
           <div className="flex items-center gap-3">
             <span className="text-gray-400 text-sm w-20 shrink-0">Audio</span>
-            <div className="flex-1 h-3 bg-gray-800 rounded-full overflow-hidden">
+            <div className="flex-1 h-3 relative">
+              <div className="absolute inset-0 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-75"
+                  style={{ width: `${level}%`, backgroundColor: '#22c55e' }}
+                />
+              </div>
               <div
-                className="h-full rounded-full transition-all duration-75"
-                style={{ width: `${level}%`, backgroundColor: '#22c55e' }}
+                className="absolute top-0 h-full w-0.5 bg-yellow-400 rounded-full"
+                style={{ left: `${Math.min(99, Math.max(bgLevel, 5) * config.audioSpikeRatio)}%`, transform: 'translateX(-50%)' }}
               />
             </div>
             <span className="text-gray-500 text-sm w-10 text-right">{level}%</span>
@@ -1048,6 +1055,21 @@ export default function CreateVideos() {
               className="flex-1 accent-blue-400"
             />
             <span className="text-gray-500 text-sm w-12 text-right">{config.fusionWindowMs} ms</span>
+          </div>
+
+          {/* Cooldown slider */}
+          <div className="flex items-center gap-3">
+            <span className="text-gray-400 text-sm w-20 shrink-0">Cooldown</span>
+            <input
+              type="range" min={3000} max={15000} step={1000} value={config.cooldownMs}
+              onChange={e => {
+                const v = Number(e.target.value)
+                setConfig(prev => ({ ...prev, cooldownMs: v }))
+                swingFusionRef.current?.updateConfig({ cooldownMs: v })
+              }}
+              className="flex-1 accent-orange-400"
+            />
+            <span className="text-gray-500 text-sm w-10 text-right">{config.cooldownMs / 1000}s</span>
           </div>
 
           {/* Ball detection toggle + sensitivity */}
