@@ -23,8 +23,8 @@ interface BlobResult {
 }
 
 const CANVAS_SIZE = 128
-const DETECT_FRAMES = 3   // consecutive confirmed frames → onBallDetected
-const LOSE_FRAMES   = 5   // consecutive empty frames    → onBallLost
+const DETECT_FRAMES = 1   // frames with blob needed to fire onBallDetected (1 = instant feedback)
+const LOSE_FRAMES   = 5   // consecutive empty frames before onBallLost fires
 
 // Pure function — exported for unit testing.
 export function findBestBlob(

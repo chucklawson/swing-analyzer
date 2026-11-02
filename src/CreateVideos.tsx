@@ -977,7 +977,7 @@ export default function CreateVideos() {
             <span className="text-gray-500 text-sm w-12 text-right">{config.fusionWindowMs} ms</span>
           </div>
 
-          {/* Ball detection toggle */}
+          {/* Ball detection toggle + sensitivity */}
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -1006,6 +1006,22 @@ export default function CreateVideos() {
             />
             <span className="text-gray-300 text-sm">Require ball in ROI before saving</span>
           </label>
+
+          {config.ballDetectionEnabled && (
+            <div className="flex items-center gap-3">
+              <span className="text-gray-400 text-sm w-20 shrink-0">Ball sens.</span>
+              <input
+                type="range" min={5} max={60} step={5} value={config.ballBrightnessThreshold}
+                onChange={e => {
+                  const v = Number(e.target.value)
+                  setConfig(prev => ({ ...prev, ballBrightnessThreshold: v }))
+                  ballDetectorRef.current?.updateConfig({ brightnessThreshold: v })
+                }}
+                className="flex-1 accent-green-400"
+              />
+              <span className="text-gray-500 text-sm w-10 text-right">{config.ballBrightnessThreshold}</span>
+            </div>
+          )}
 
           {/* Action row: ROI hint, Calibrate, Debug, Reset box, Export */}
           <div className="flex flex-wrap gap-2 items-center justify-between">
