@@ -33,7 +33,7 @@ export const DEFAULT_CONFIG: SwingConfig = {
   audioLookbackMs: 2000,
   cooldownMs: 7000,
   audioOnlyMode: true,
-  ballDetectionEnabled: false,
+  ballDetectionEnabled: true,
   ballBrightnessThreshold: 20,
   ballMinPixels: 2,
   ballMaxPixels: 400,
@@ -50,7 +50,7 @@ export function loadConfig(): SwingConfig {
     if (!raw) return { ...DEFAULT_CONFIG }
     const saved = JSON.parse(raw) as Partial<SwingConfig>
     // audioOnlyMode is always true — motion detection is not active
-    return { ...DEFAULT_CONFIG, ...saved, audioOnlyMode: true, ballDetectionEnabled: false }
+    return { ...DEFAULT_CONFIG, ...saved, audioOnlyMode: true }
   } catch {
     return { ...DEFAULT_CONFIG }
   }
