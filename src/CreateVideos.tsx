@@ -203,6 +203,7 @@ export default function CreateVideos() {
   const dirHandleRef      = useRef<any>(null)
   const cooldownRef       = useRef(false)
   const capturingRef      = useRef(false)
+  const recorderReadyRef  = useRef(false)
   const mimeRef           = useRef('')
   const facingRef         = useRef<'environment' | 'user'>('environment')
   const isFrontRef        = useRef(false)
@@ -386,7 +387,8 @@ export default function CreateVideos() {
       swingFusionRef.current = fusion
 
       startAudio(stream)
-      startRollingRecorder()
+      recorderReadyRef.current = false
+      setTimeout(() => { startRollingRecorder(); recorderReadyRef.current = true }, 500)
 
       if (config.ballDetectionEnabled && videoRef.current) {
         const bd = new BallDetector({
@@ -436,6 +438,7 @@ export default function CreateVideos() {
     analyserRef.current = null
     cooldownRef.current = false
     capturingRef.current = false
+    recorderReadyRef.current = false
     await start()
   }
 
@@ -515,6 +518,7 @@ export default function CreateVideos() {
   }
 
   function trigger(ts?: number) {
+    if (!recorderReadyRef.current) return
     cooldownRef.current  = true
     capturingRef.current = true
     setStatus('recording')
