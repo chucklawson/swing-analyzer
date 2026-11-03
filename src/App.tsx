@@ -213,7 +213,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       ctx.fillStyle = '#ff4444'
       for (const lm of pose) {
         ctx.beginPath()
-        ctx.arc(lm.x * w, lm.y * h, 4, 0, Math.PI * 2)
+        ctx.arc(lm.x * w, lm.y * h, 2, 0, Math.PI * 2)
         ctx.fill()
       }
 
@@ -262,9 +262,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
           )
           ctx.save()
           ctx.setLineDash([10, 5])
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'
           ctx.lineWidth = 1.5
+          // Forearm line (elbow→wrist) — white
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'
           ctx.beginPath(); ctx.moveTo(alx1, aly1); ctx.lineTo(alx2, aly2); ctx.stroke()
+          // Hand line (wrist→index finger) — orange
+          ctx.strokeStyle = 'rgba(251, 146, 60, 0.85)'
           ctx.beginPath(); ctx.moveTo(hlx1, hly1); ctx.lineTo(hlx2, hly2); ctx.stroke()
           ctx.setLineDash([])
           ctx.restore()
@@ -298,8 +301,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
 
       // Wrist angles — left hand only, toggled via showWristAnglesRef
       if (showWristAnglesRef.current) {
-        const lWrist = pose[15], lElbow = pose[13], lIndex = pose[19], lThumb = pose[21]
-        if (lWrist && lElbow && lIndex && lThumb) {
+        const lWrist = pose[15], lElbow = pose[13], lIndex = pose[19]
+        if (lWrist && lElbow && lIndex) {
           const wx = lWrist.x * w, wy = lWrist.y * h
           // Index angle: elbow→wrist→index (lm 19→15→13)
           ctx.strokeStyle = 'rgba(251,146,60,0.9)'
@@ -309,18 +312,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
           ctx.lineTo(wx, wy)
           ctx.lineTo(lIndex.x * w, lIndex.y * h)
           ctx.stroke()
-          // Thumb angle: elbow→wrist→thumb (lm 21→15→13)
-          ctx.strokeStyle = 'rgba(192,132,252,0.9)'
-          ctx.lineWidth = 3
-          ctx.beginPath()
-          ctx.moveTo(lElbow.x * w, lElbow.y * h)
-          ctx.lineTo(wx, wy)
-          ctx.lineTo(lThumb.x * w, lThumb.y * h)
-          ctx.stroke()
-          // Angle labels at wrist
           ctx.font = 'bold 22px monospace'
           drawOutlinedText(`${angles.lWristIndex}°`, wx + 8, wy - 14, '#fb923c')
-          drawOutlinedText(`${angles.lWristThumb}°`, wx + 8, wy + 22, '#c084fc')
         }
       }
 
@@ -1365,8 +1358,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
               <p className="font-medium text-gray-100 mb-1">Wrist angles <span className="text-orange-400">(left hand only)</span></p>
               <p>After Pose is detected, tap <span className="text-orange-400 font-medium">Wrist °</span> to overlay left-hand wrist angle lines with angle readouts.</p>
               <p><span className="text-orange-400 font-medium">Orange line + °</span> — angle at the left wrist formed by the forearm and the line to the left index finger knuckle. Measures wrist cock / bow.</p>
-              <p><span className="text-purple-400 font-medium">Purple line + °</span> — angle at the left wrist formed by the forearm and the line to the left thumb tip. Useful for checking grip pressure and thumb alignment.</p>
-              <p className="mt-1 text-gray-400">Both angles update live as the video plays. Tap <span className="text-orange-400 font-medium">Wrist °</span> again to hide the overlay.</p>
+              <p className="mt-1 text-gray-400">The angle updates live as the video plays. Tap <span className="text-orange-400 font-medium">Wrist °</span> again to hide the overlay.</p>
             </div>
             <p className="mt-2">Tap <span className="font-medium text-gray-100">Clear Pose</span> to remove the skeleton and all overlays.</p>
           </section>
