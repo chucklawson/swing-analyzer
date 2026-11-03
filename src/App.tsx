@@ -151,6 +151,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const showWristAnglesRef = useRef(false)
   const [showJointAngles, setShowJointAngles] = useState(false)
   const showJointAnglesRef = useRef(false)
+  const [showArmLines, setShowArmLines] = useState(true)
+  const showArmLinesRef = useRef(true)
+  const [showHipLine, setShowHipLine] = useState(true)
+  const showHipLineRef = useRef(true)
   const [fullscreen, setFullscreen] = useState(false)
   const [showClips, setShowClips] = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -233,16 +237,39 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       ctx.setLineDash([10, 5])
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'
       ctx.lineWidth = 1.5
-      // Shoulder line — extended to canvas edges
+      // Shoulder line — always shown
       ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke()
-      // Hip line — extended to canvas edges
-      ctx.beginPath(); ctx.moveTo(hx1, hy1); ctx.lineTo(hx2, hy2); ctx.stroke()
-      // Spine line — extended, thicker, cyan
+      // Hip line — toggled via checkbox
+      if (showHipLineRef.current) {
+        ctx.beginPath(); ctx.moveTo(hx1, hy1); ctx.lineTo(hx2, hy2); ctx.stroke()
+      }
+      // Spine line — always shown, thicker, cyan
       ctx.lineWidth = 3
       ctx.strokeStyle = 'rgba(100, 210, 255, 0.8)'
       ctx.beginPath(); ctx.moveTo(spx1, spy1); ctx.lineTo(spx2, spy2); ctx.stroke()
       ctx.setLineDash([])
       ctx.restore()
+
+      // Arm lines — left forearm (elbow→wrist) and left hand (wrist→index finger), toggled
+      if (showArmLinesRef.current) {
+        const lElbowPt = pose[13], lWristPt = pose[15], lIndexPt = pose[19]
+        if (lElbowPt && lWristPt && lIndexPt) {
+          const [alx1, aly1, alx2, aly2] = extendLineToEdges(
+            lElbowPt.x * w, lElbowPt.y * h, lWristPt.x * w, lWristPt.y * h, w, h
+          )
+          const [hlx1, hly1, hlx2, hly2] = extendLineToEdges(
+            lWristPt.x * w, lWristPt.y * h, lIndexPt.x * w, lIndexPt.y * h, w, h
+          )
+          ctx.save()
+          ctx.setLineDash([10, 5])
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'
+          ctx.lineWidth = 1.5
+          ctx.beginPath(); ctx.moveTo(alx1, aly1); ctx.lineTo(alx2, aly2); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(hlx1, hly1); ctx.lineTo(hlx2, hly2); ctx.stroke()
+          ctx.setLineDash([])
+          ctx.restore()
+        }
+      }
 
       // Joint angle labels + corner stats — outlined text, no background box
       const angles = computePoseAngles(pose)
@@ -1112,20 +1139,20 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
             )}
           </div>
           {poseStatus === 'detected' && (
-            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={showJointAngles}
-                onChange={e => {
-                  const v = e.target.checked
-                  setShowJointAngles(v)
-                  showJointAnglesRef.current = v
-                  redrawCanvas()
-                }}
-                className="accent-yellow-400 w-4 h-4"
-              />
-              Show joint angles
-            </label>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 justify-center">
+              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+                <input type="checkbox" checked={showHipLine} onChange={e => { const v = e.target.checked; setShowHipLine(v); showHipLineRef.current = v; redrawCanvas() }} className="accent-white w-4 h-4" />
+                Hip line
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+                <input type="checkbox" checked={showArmLines} onChange={e => { const v = e.target.checked; setShowArmLines(v); showArmLinesRef.current = v; redrawCanvas() }} className="accent-white w-4 h-4" />
+                Arm lines
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+                <input type="checkbox" checked={showJointAngles} onChange={e => { const v = e.target.checked; setShowJointAngles(v); showJointAnglesRef.current = v; redrawCanvas() }} className="accent-yellow-400 w-4 h-4" />
+                Joint angles
+              </label>
+            </div>
           )}
           <div className="flex items-center gap-1 flex-wrap justify-center">
             <span className="text-xs text-gray-500 mr-1">Speed:</span>
