@@ -209,6 +209,7 @@ export default function CreateVideos() {
   const isFrontRef        = useRef(false)
   const ballDetectorRef   = useRef<BallDetector | null>(null)
   const roiRef            = useRef<NormalizedRect>(loadConfig().roi)
+  const peakLevelRef      = useRef(0)
   const armedRef          = useRef(false)
   const configRef         = useRef<SwingConfig>(loadConfig())
 
@@ -462,7 +463,17 @@ export default function CreateVideos() {
       audioSpikeRatio:       config.audioSpikeRatio,
       audioBackgroundWindow: config.audioBackgroundWindow,
     })
-    detector.onLevelUpdate((pct) => { setLevel(pct); setBgLevel(detector.backgroundLevel()) })
+    detector.onLevelUpdate((pct) => {
+      // Peak-hold with exponential decay: snap up instantly, drain ~300 ms.
+      // Prevents brief ball-strike spikes (1-2 frames) from being missed by React's render cycle.
+      if (pct >= peakLevelRef.current) {
+        peakLevelRef.current = pct
+      } else {
+        peakLevelRef.current = Math.max(pct, peakLevelRef.current * 0.85)
+      }
+      setLevel(Math.round(peakLevelRef.current))
+      setBgLevel(detector.backgroundLevel())
+    })
     detector.onImpact((ts, pct) => {
       const fusion = swingFusionRef.current
       if (!fusion) return
@@ -669,6 +680,7 @@ export default function CreateVideos() {
     setStatus('idle')
     setReviewTap(false)
     setLevel(0)
+    peakLevelRef.current = 0
     setArmed(false)
     setBallPos(null)
   }
@@ -1047,13 +1059,13 @@ export default function CreateVideos() {
             <div className="flex-1 h-3 relative">
               <div className="absolute inset-0 bg-gray-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all duration-75"
+                  className="h-full rounded-full"
                   style={{ width: `${level}%`, backgroundColor: '#22c55e' }}
                 />
               </div>
               <div
                 className="absolute top-0 h-full w-0.5 bg-yellow-400 rounded-full"
-                style={{ left: `${Math.min(99, Math.max(bgLevel, 5) * config.audioSpikeRatio)}%`, transform: 'translateX(-50%)' }}
+                style={{ left: `${Math.min(99, Math.max(bgLevel, 1) * config.audioSpikeRatio)}%`, transform: 'translateX(-50%)' }}
               />
             </div>
             <span className="text-gray-500 text-sm w-10 text-right">{level}%</span>
