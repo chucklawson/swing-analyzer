@@ -53,6 +53,7 @@ interface PoseAngles {
   lElbow: number; rElbow: number
   lKnee: number;  rKnee: number
   shoulders: number; hips: number; spine: number
+  lWristIndex: number; lWristThumb: number
 }
 
 function extendLineToEdges(
@@ -71,13 +72,15 @@ function computePoseAngles(lm: { x: number; y: number }[]): PoseAngles {
   const hipMid = { x: (lm[23].x + lm[24].x) / 2, y: (lm[23].y + lm[24].y) / 2 }
   const shoulderMid = { x: (lm[11].x + lm[12].x) / 2, y: (lm[11].y + lm[12].y) / 2 }
   return {
-    lElbow:    calcAngle(lm[11], lm[13], lm[15]),
-    rElbow:    calcAngle(lm[12], lm[14], lm[16]),
-    lKnee:     calcAngle(lm[23], lm[25], lm[27]),
-    rKnee:     calcAngle(lm[24], lm[26], lm[28]),
-    shoulders: lineAngleDeg(lm[11], lm[12]),
-    hips:      lineAngleDeg(lm[23], lm[24]),
-    spine:     Math.round(Math.atan2(shoulderMid.x - hipMid.x, hipMid.y - shoulderMid.y) * 180 / Math.PI),
+    lElbow:      calcAngle(lm[11], lm[13], lm[15]),
+    rElbow:      calcAngle(lm[12], lm[14], lm[16]),
+    lKnee:       calcAngle(lm[23], lm[25], lm[27]),
+    rKnee:       calcAngle(lm[24], lm[26], lm[28]),
+    shoulders:   lineAngleDeg(lm[11], lm[12]),
+    hips:        lineAngleDeg(lm[23], lm[24]),
+    spine:       Math.round(Math.atan2(shoulderMid.x - hipMid.x, hipMid.y - shoulderMid.y) * 180 / Math.PI),
+    lWristIndex: calcAngle(lm[19], lm[15], lm[13]),
+    lWristThumb: calcAngle(lm[21], lm[15], lm[13]),
   }
 }
 
@@ -143,6 +146,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [hasStartPoint, setHasStartPoint] = useState(false)
   const [playbackFPS, setPlaybackFPS] = useState(FRAME_RATE)
   const [poseStatus, setPoseStatus] = useState<'idle' | 'loading' | 'detected' | 'none'>('idle')
+  const [showWristAngles, setShowWristAngles] = useState(false)
+  const showWristAnglesRef = useRef(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [showClips, setShowClips] = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -258,6 +263,35 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       for (const { angle, lm, ox, oy } of jointLabels) {
         drawOutlinedText(`${angle}°`, lm.x * w + ox, lm.y * h + oy, '#ffff00')
       }
+
+      // Wrist angles — left hand only, toggled via showWristAnglesRef
+      if (showWristAnglesRef.current) {
+        const lWrist = pose[15], lElbow = pose[13], lIndex = pose[19], lThumb = pose[21]
+        if (lWrist && lElbow && lIndex && lThumb) {
+          const wx = lWrist.x * w, wy = lWrist.y * h
+          // Index angle: elbow→wrist→index (lm 19→15→13)
+          ctx.strokeStyle = 'rgba(251,146,60,0.9)'
+          ctx.lineWidth = 3
+          ctx.beginPath()
+          ctx.moveTo(lElbow.x * w, lElbow.y * h)
+          ctx.lineTo(wx, wy)
+          ctx.lineTo(lIndex.x * w, lIndex.y * h)
+          ctx.stroke()
+          // Thumb angle: elbow→wrist→thumb (lm 21→15→13)
+          ctx.strokeStyle = 'rgba(192,132,252,0.9)'
+          ctx.lineWidth = 3
+          ctx.beginPath()
+          ctx.moveTo(lElbow.x * w, lElbow.y * h)
+          ctx.lineTo(wx, wy)
+          ctx.lineTo(lThumb.x * w, lThumb.y * h)
+          ctx.stroke()
+          // Angle labels at wrist
+          ctx.font = 'bold 22px monospace'
+          drawOutlinedText(`${angles.lWristIndex}°`, wx + 8, wy - 14, '#fb923c')
+          drawOutlinedText(`${angles.lWristThumb}°`, wx + 8, wy + 22, '#c084fc')
+        }
+      }
+
       // Spine-to-shoulder angle dimension annotation
       {
         // Angle of shoulder line (left→right) and spine line (hip→shoulder midpoint)
@@ -515,8 +549,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   function play() {
     const video = videoRef.current
     if (!video) return
+    if (video.ended) video.currentTime = 0
     video.playbackRate = playbackFPS / FRAME_RATE
-    video.play()
+    video.play().catch(() => {})
     setIsPaused(false)
     if (poseActiveRef.current && !animFrameRef.current) {
       animFrameRef.current = requestAnimationFrame(runPoseLoop)
@@ -1054,6 +1089,19 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                 className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
               >
                 {poseStatus === 'loading' ? 'Loading…' : poseStatus === 'none' ? 'No Person' : '🦴 Pose'}
+              </button>
+            )}
+            {poseStatus === 'detected' && (
+              <button
+                onClick={() => {
+                  const v = !showWristAngles
+                  setShowWristAngles(v)
+                  showWristAnglesRef.current = v
+                  redrawCanvas()
+                }}
+                className={`px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors ${showWristAngles ? 'bg-orange-700 hover:bg-orange-600' : 'bg-gray-800 hover:bg-gray-700'}`}
+              >
+                Wrist °
               </button>
             )}
           </div>
