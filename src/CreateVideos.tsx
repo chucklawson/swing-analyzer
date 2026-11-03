@@ -231,6 +231,7 @@ export default function CreateVideos() {
   const [isFront,      setIsFront]      = useState(false)
   const [armed,        setArmed]        = useState(false)
   const [bgLevel,      setBgLevel]      = useState(0)
+  const [flashedBtn,   setFlashedBtn]   = useState<string | null>(null)
   const [profiles,     setProfiles]     = useState<{ F: boolean; D: boolean }>(() => ({
     F: !!localStorage.getItem('swing-config-profile-F'),
     D: !!localStorage.getItem('swing-config-profile-D'),
@@ -275,14 +276,21 @@ export default function CreateVideos() {
     })
   }, [])
 
+  function flash(key: string) {
+    setFlashedBtn(key)
+    setTimeout(() => setFlashedBtn(k => k === key ? null : k), 900)
+  }
+
   function saveProfile(type: 'F' | 'D') {
     localStorage.setItem(`swing-config-profile-${type}`, JSON.stringify({ ...config, roi }))
     setProfiles(prev => ({ ...prev, [type]: true }))
+    flash(`save-${type}`)
   }
 
   function loadProfile(type: 'F' | 'D') {
     const raw = localStorage.getItem(`swing-config-profile-${type}`)
     if (!raw) return
+    flash(`load-${type}`)
     try {
       const saved = JSON.parse(raw) as SwingConfig
       setConfig(saved)
@@ -1196,16 +1204,16 @@ export default function CreateVideos() {
                 <div key={type} className="flex gap-1">
                   <button
                     onClick={() => saveProfile(type)}
-                    className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs cursor-pointer"
+                    className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${flashedBtn === `save-${type}` ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
                   >
-                    Save {type === 'F' ? 'Front' : 'DTL'}
+                    {flashedBtn === `save-${type}` ? '✓ Saved' : `Save ${type === 'F' ? 'Front' : 'DTL'}`}
                   </button>
                   <button
                     onClick={() => loadProfile(type)}
                     disabled={!profiles[type]}
-                    className="px-3 py-1.5 rounded-lg text-xs cursor-pointer disabled:opacity-30 disabled:cursor-default bg-green-800 hover:bg-green-700 text-green-200"
+                    className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer disabled:opacity-30 disabled:cursor-default transition-colors ${flashedBtn === `load-${type}` ? 'bg-blue-600 text-white' : 'bg-green-800 hover:bg-green-700 text-green-200'}`}
                   >
-                    Load {type === 'F' ? 'Front' : 'DTL'}
+                    {flashedBtn === `load-${type}` ? '✓ Loaded' : `Load ${type === 'F' ? 'Front' : 'DTL'}`}
                   </button>
                 </div>
               ))}
