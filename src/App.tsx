@@ -112,6 +112,7 @@ interface VideoPlayerHandle {
   isPaused: () => boolean
   reset: () => void
   setFPS: (fps: number) => void
+  setMuted: (muted: boolean) => void
   getLandmarks: () => { x: number; y: number; z: number }[] | null
 }
 
@@ -576,6 +577,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     isPaused: () => videoRef.current?.paused ?? true,
     reset,
     setFPS: (fps: number) => setPlaybackFPS(fps),
+    setMuted: (muted: boolean) => { if (videoRef.current) videoRef.current.muted = muted },
     getLandmarks: () => poseResultRef.current,
   }))
 
@@ -1378,14 +1380,18 @@ function App() {
 
   function syncTogglePlay() {
     if (syncPaused) {
+      // iOS only allows one unmuted video at a time. Mute both first so they
+      // can play simultaneously; unmute when paused (individual play is unaffected).
+      player1.current?.setMuted(true)
+      player2.current?.setMuted(true)
       player1.current?.play()
-      // iOS aborts the first play() when a second is issued in the same synchronous tick.
-      // A macrotask boundary lets Video 1 establish before Video 2 starts.
-      setTimeout(() => player2.current?.play(), 0)
+      player2.current?.play()
       setSyncPaused(false)
     } else {
       player1.current?.pause()
       player2.current?.pause()
+      player1.current?.setMuted(false)
+      player2.current?.setMuted(false)
       setSyncPaused(true)
     }
   }
@@ -1427,7 +1433,7 @@ function App() {
         <span className="text-xs uppercase tracking-widest text-gray-500">Sync Controls</span>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { player1.current?.reset(); player2.current?.reset(); setSyncPaused(true) }}
+            onClick={() => { player1.current?.reset(); player2.current?.reset(); player1.current?.setMuted(false); player2.current?.setMuted(false); setSyncPaused(true) }}
             className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white font-mono text-sm transition-colors"
           >
             ⏮
