@@ -551,7 +551,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     if (!video) return
     if (video.ended) video.currentTime = 0
     video.playbackRate = playbackFPS / FRAME_RATE
-    video.play().catch(() => {})
+    video.play().catch((err: unknown) => { if ((err as Error)?.name !== 'AbortError') console.warn('video.play rejected:', err) })
     setIsPaused(false)
     if (poseActiveRef.current && !animFrameRef.current) {
       animFrameRef.current = requestAnimationFrame(runPoseLoop)
@@ -1313,6 +1313,13 @@ function HelpModal({ onClose }: { onClose: () => void }) {
               <p>The angle between the spine line and the shoulder line is measured and displayed as a dimension annotation — an arc with tick marks, positioned in the upper-left area of their intersection. This value updates live as the body rotates through the swing.</p>
               <p className="mt-1.5 text-cyan-300 font-medium">Target: 90°. A value of 90° means the spine is perfectly perpendicular to the shoulders, which is the correct address and impact position in the golf swing. Deviation from 90° indicates sway, tilt, or loss of spine angle.</p>
             </div>
+            <div className="mt-2 bg-gray-800 rounded-lg p-3 flex flex-col gap-1.5">
+              <p className="font-medium text-gray-100 mb-1">Wrist angles <span className="text-orange-400">(left hand only)</span></p>
+              <p>After Pose is detected, tap <span className="text-orange-400 font-medium">Wrist °</span> to overlay left-hand wrist angle lines with angle readouts.</p>
+              <p><span className="text-orange-400 font-medium">Orange line + °</span> — angle at the left wrist formed by the forearm and the line to the left index finger knuckle. Measures wrist cock / bow.</p>
+              <p><span className="text-purple-400 font-medium">Purple line + °</span> — angle at the left wrist formed by the forearm and the line to the left thumb tip. Useful for checking grip pressure and thumb alignment.</p>
+              <p className="mt-1 text-gray-400">Both angles update live as the video plays. Tap <span className="text-orange-400 font-medium">Wrist °</span> again to hide the overlay.</p>
+            </div>
             <p className="mt-2">Tap <span className="font-medium text-gray-100">Clear Pose</span> to remove the skeleton and all overlays.</p>
           </section>
 
@@ -1345,6 +1352,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
               <li>Slow the speed to 2–5 fps before hitting Play with Pose active for the smoothest skeleton tracking.</li>
               <li>The 3D view updates live while the videos play — set both to the same slow motion speed for the best result.</li>
               <li>Draw lines to mark additional reference angles like swing plane or club path, alongside the automatic Pose overlays.</li>
+              <li>Use <span className="text-orange-400 font-medium">Wrist °</span> at the top of the backswing and at impact to check left-wrist angle — a flat or bowed wrist at impact is associated with a square clubface.</li>
             </ul>
           </section>
 
@@ -1371,7 +1379,9 @@ function App() {
   function syncTogglePlay() {
     if (syncPaused) {
       player1.current?.play()
-      player2.current?.play()
+      // iOS aborts the first play() when a second is issued in the same synchronous tick.
+      // A macrotask boundary lets Video 1 establish before Video 2 starts.
+      setTimeout(() => player2.current?.play(), 0)
       setSyncPaused(false)
     } else {
       player1.current?.pause()
