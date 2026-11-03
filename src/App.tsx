@@ -149,6 +149,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [poseStatus, setPoseStatus] = useState<'idle' | 'loading' | 'detected' | 'none'>('idle')
   const [showWristAngles, setShowWristAngles] = useState(false)
   const showWristAnglesRef = useRef(false)
+  const [showJointAngles, setShowJointAngles] = useState(false)
+  const showJointAnglesRef = useRef(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [showClips, setShowClips] = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -254,15 +256,17 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
         ctx.fillText(text, x, y)
       }
 
-      ctx.font = 'bold 24px monospace'
-      const jointLabels = [
-        { angle: angles.lElbow, lm: pose[13], ox: 8,   oy: 0 },
-        { angle: angles.rElbow, lm: pose[14], ox: -80, oy: 0 },
-        { angle: angles.lKnee,  lm: pose[25], ox: 8,   oy: 0 },
-        { angle: angles.rKnee,  lm: pose[26], ox: -80, oy: 0 },
-      ]
-      for (const { angle, lm, ox, oy } of jointLabels) {
-        drawOutlinedText(`${angle}°`, lm.x * w + ox, lm.y * h + oy, '#ffff00')
+      if (showJointAnglesRef.current) {
+        ctx.font = 'bold 24px monospace'
+        const jointLabels = [
+          { angle: angles.lElbow, lm: pose[13], ox: 8,   oy: 0 },
+          { angle: angles.rElbow, lm: pose[14], ox: -80, oy: 0 },
+          { angle: angles.lKnee,  lm: pose[25], ox: 8,   oy: 0 },
+          { angle: angles.rKnee,  lm: pose[26], ox: -80, oy: 0 },
+        ]
+        for (const { angle, lm, ox, oy } of jointLabels) {
+          drawOutlinedText(`${angle}°`, lm.x * w + ox, lm.y * h + oy, '#ffff00')
+        }
       }
 
       // Wrist angles — left hand only, toggled via showWristAnglesRef
@@ -1107,7 +1111,22 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
               </button>
             )}
           </div>
-
+          {poseStatus === 'detected' && (
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showJointAngles}
+                onChange={e => {
+                  const v = e.target.checked
+                  setShowJointAngles(v)
+                  showJointAnglesRef.current = v
+                  redrawCanvas()
+                }}
+                className="accent-yellow-400 w-4 h-4"
+              />
+              Show joint angles
+            </label>
+          )}
           <div className="flex items-center gap-1 flex-wrap justify-center">
             <span className="text-xs text-gray-500 mr-1">Speed:</span>
             {FPS_PRESETS.map(fps => (
@@ -1295,7 +1314,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <ol className="list-decimal list-inside flex flex-col gap-1.5">
               <li>Pause the video on a frame where the person is clearly visible.</li>
               <li>Tap <span className="font-medium text-gray-100">🦴 Pose</span>. The first time you use it, the AI model downloads (~8 MB) which takes a few seconds. After that it's instant.</li>
-              <li>A <span className="text-green-400 font-medium">green skeleton</span> appears with <span className="text-yellow-400 font-medium">yellow angle labels</span> at each elbow and knee.</li>
+              <li>A <span className="text-green-400 font-medium">green skeleton</span> appears with reference lines and body angle readouts. Check <span className="text-yellow-400 font-medium">Show joint angles</span> to also display elbow and knee angles in yellow.</li>
               <li>Hit Play — the skeleton and all overlays track the person as the video plays. Works best at slow motion speeds.</li>
             </ol>
             <div className="mt-2 bg-gray-800 rounded-lg p-3 flex flex-col gap-1.5">
