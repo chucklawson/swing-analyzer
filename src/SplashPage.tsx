@@ -1,10 +1,12 @@
 import { useNavigate } from 'react-router-dom'
+import deersAtFlag from './assets/deersAtFlag.jpeg'
 
 export default function SplashPage() {
   const navigate = useNavigate()
 
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center relative overflow-hidden select-none">
+    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden select-none"
+      style={{ backgroundImage: `url(${deersAtFlag})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
 
       <style>{`
         @keyframes flip3d {
@@ -13,9 +15,12 @@ export default function SplashPage() {
         }
         .title-flip {
           display: inline-block;
-          animation: flip3d 4s linear infinite;
+          animation: flip3d 10s linear infinite;
         }
       `}</style>
+
+      {/* dark overlay over photo */}
+      <div className="absolute inset-0 pointer-events-none" style={{ background: 'rgba(0,0,0,0.62)' }} />
 
       {/* background radial glow */}
       <div className="absolute inset-0 pointer-events-none"
@@ -30,27 +35,12 @@ export default function SplashPage() {
 
       {/* logo / title */}
       <div className="relative flex flex-col items-center gap-3 mb-12">
-        {/* golf ball icon */}
-        <div className="w-16 h-16 rounded-full mb-2 flex items-center justify-center"
-          style={{ background: 'radial-gradient(circle at 38% 35%, #f0f0f0, #b0b0b0)', boxShadow: '0 4px 24px rgba(0,0,0,0.6)' }}>
-          <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
-            {[
-              [22,14],[14,19],[30,19],[10,26],[22,24],[34,26],[16,32],[28,32]
-            ].map(([cx,cy], i) => (
-              <circle key={i} cx={cx} cy={cy} r="2.2" fill="rgba(0,0,0,0.18)" />
-            ))}
-          </svg>
-        </div>
-
         <div style={{ perspective: '600px' }}>
           <h1 className="title-flip text-6xl font-black tracking-tight leading-none">
             <span className="text-white">Build an </span><span className="text-green-400">Oily Swing</span>
           </h1>
         </div>
 
-        <p className="text-gray-400 text-lg tracking-widest uppercase font-light">
-          Swing Analyzer
-        </p>
       </div>
 
       {/* tagline */}
@@ -62,19 +52,19 @@ export default function SplashPage() {
       <div className="flex flex-col items-center gap-4">
         <button
           onClick={() => navigate('/analyzer')}
-          className="px-10 py-4 rounded-xl text-lg font-semibold text-black bg-green-400 hover:bg-green-300 active:scale-95 transition-all duration-150 shadow-lg shadow-green-900/40 cursor-pointer w-64"
+          className="px-10 py-4 rounded-xl text-lg font-semibold text-gray-900 bg-white hover:bg-gray-100 active:scale-95 transition-all duration-150 shadow-lg shadow-black/40 cursor-pointer w-64"
         >
           Analyze My Swing →
         </button>
         <button
           onClick={() => navigate('/create-videos')}
-          className="px-10 py-4 rounded-xl text-lg font-semibold text-green-400 border border-green-400 hover:bg-green-400 hover:text-black active:scale-95 transition-all duration-150 cursor-pointer w-64"
+          className="px-10 py-4 rounded-xl text-lg font-semibold text-white border-2 border-white hover:bg-white hover:text-gray-900 active:scale-95 transition-all duration-150 cursor-pointer w-64"
         >
           Create Videos →
         </button>
       </div>
 
-      <p className="absolute bottom-6 text-gray-700 text-xs tracking-wider">
+      <p className="absolute bottom-6 text-gray-400 text-xs tracking-wider">
         OILY SWING © {new Date().getFullYear()}
       </p>
     </div>
