@@ -27,12 +27,16 @@ const DETECT_FRAMES = 1   // frames with blob needed to fire onBallDetected (1 =
 const LOSE_FRAMES   = 5   // consecutive empty frames before onBallLost fires
 
 // Pure function — exported for unit testing.
+// minAspect/maxAspect should be pre-corrected for ROI stretch so that a round
+// ball in a non-square ROI (which appears oval in the square canvas) still passes.
 export function findBestBlob(
   bright: Uint8Array,  // row-major w×h, 1 = above threshold, 0 = below
   w: number,
   h: number,
   minPixels: number,
   maxPixels: number,
+  minAspect = 0.65,
+  maxAspect = 1.55,
 ): BlobResult | null {
   const visited = new Uint8Array(w * h)
   let best: (BlobResult & { score: number }) | null = null
@@ -69,7 +73,7 @@ export function findBestBlob(
       const bboxW = maxX - minX + 1
       const bboxH = maxY - minY + 1
       const aspect = bboxW / bboxH
-      if (aspect < 0.65 || aspect > 1.55) continue   // tighter: reject elongated smears
+      if (aspect < minAspect || aspect > maxAspect) continue
 
       // Compactness: a circle scores π/4 ≈ 0.785; reject clearly non-round blobs
       const score = area / (bboxW * bboxH)
@@ -179,7 +183,15 @@ export class BallDetector {
       bright[i] = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) > lumaFloor ? 1 : 0
     }
 
-    const blob = findBestBlob(bright, CANVAS_SIZE, CANVAS_SIZE, this.config.minBlobPixels, this.config.maxBlobPixels)
+    // A round ball in a non-square ROI appears oval in the square canvas.
+    // Expected canvas aspect (blobW/blobH) of a round object = sh/sw.
+    // Allow ±55% around that expected value so the check is tight enough to
+    // reject elongated smears but tolerant of the ROI's stretch distortion.
+    const expectedAspect = sh / sw
+    const minAspect = Math.max(0.15, expectedAspect * 0.45)
+    const maxAspect = Math.min(6.0,  expectedAspect * 2.2)
+
+    const blob = findBestBlob(bright, CANVAS_SIZE, CANVAS_SIZE, this.config.minBlobPixels, this.config.maxBlobPixels, minAspect, maxAspect)
     this._renderDebug(data, bright, meanLuma, lumaFloor, blob)
 
     if (blob) {

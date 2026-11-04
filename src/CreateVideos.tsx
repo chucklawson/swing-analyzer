@@ -811,7 +811,7 @@ export default function CreateVideos() {
                   ['Audio sensitivity', 'How much louder than background a sound must be to count as an impact. Higher = only loud sharp strikes; lower = lighter contact also triggers. Default 2.5×.'],
                   ['Front checkbox', 'Checked = front/face-on view, filenames end in _F. Unchecked = down-the-line, filenames end in _D.'],
                   ['Flip camera icon', 'Top-right of video (visible when Listening) — switches between front and rear camera.'],
-                  ['Reset box', 'Returns the ROI box to the default center position.'],
+                  ['Reset box', 'Returns the ROI box to the default position — lower-left of frame, sized for a typical ball-at-address setup.'],
                 ].map(([name, desc]) => (
                   <div key={name}>
                     <p className="text-white font-medium">{name}</p>
@@ -1203,16 +1203,16 @@ export default function CreateVideos() {
             </p>
             <div className="flex gap-2 flex-wrap">
               <button
-                onClick={() => setRoi(DEFAULT_CONFIG.roi)}
-                className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs cursor-pointer"
+                onClick={() => { flash('reset-box'); setRoi(DEFAULT_CONFIG.roi) }}
+                className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${flashedBtn === 'reset-box' ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
               >
-                Reset box
+                {flashedBtn === 'reset-box' ? '✓ Reset' : 'Reset box'}
               </button>
               <button
-                onClick={() => setDebugOpen(v => !v)}
-                className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer ${debugOpen ? 'bg-blue-700 text-blue-100' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                onClick={() => { flash('debug'); setDebugOpen(v => !v) }}
+                className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${flashedBtn === 'debug' ? 'bg-blue-600 text-white' : debugOpen ? 'bg-blue-700 text-blue-100' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
               >
-                Debug
+                {flashedBtn === 'debug' ? (debugOpen ? '✓ Debug off' : '✓ Debug on') : 'Debug'}
               </button>
               {config.traceEnabled && (
                 <button
@@ -1298,10 +1298,10 @@ export default function CreateVideos() {
           </button>
         ) : (
           <button
-            onClick={teardown}
-            className="px-8 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-semibold active:scale-95 transition-all cursor-pointer"
+            onClick={() => { flash('stop'); setTimeout(teardown, 250) }}
+            className={`px-8 py-3 rounded-xl font-semibold active:scale-95 transition-all cursor-pointer ${flashedBtn === 'stop' ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
           >
-            Stop
+            {flashedBtn === 'stop' ? '✓ Stopping…' : 'Stop'}
           </button>
         )}
       </div>
