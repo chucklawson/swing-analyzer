@@ -69,9 +69,12 @@ export function findBestBlob(
       const bboxW = maxX - minX + 1
       const bboxH = maxY - minY + 1
       const aspect = bboxW / bboxH
-      if (aspect < 0.5 || aspect > 2.0) continue
+      if (aspect < 0.65 || aspect > 1.55) continue   // tighter: reject elongated smears
 
+      // Compactness: a circle scores π/4 ≈ 0.785; reject clearly non-round blobs
       const score = area / (bboxW * bboxH)
+      if (score < 0.55) continue
+
       if (!best || score > best.score) {
         best = { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, area, score }
       }
