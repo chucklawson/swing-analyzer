@@ -37,7 +37,7 @@ export const DEFAULT_CONFIG: SwingConfig = {
   audioOnlyMode: true,
   micGain: 4,
   ballDetectionEnabled: true,
-  ballBrightnessThreshold: 20,
+  ballBrightnessThreshold: 30,
   ballMinPixels: 2,
   ballMaxPixels: 6000,
   roi: { x: 0.2, y: 0.15, w: 0.6, h: 0.7 },

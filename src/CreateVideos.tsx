@@ -792,7 +792,7 @@ export default function CreateVideos() {
               <div className="flex flex-col gap-2">
                 {[
                   ['Require ball in ROI', 'Master toggle. When checked, the app watches the ROI box every frame for a white golf ball. A clip only saves when the ball is confirmed visible (Armed) at the time of impact. Off by default.'],
-                  ['Ball sens.', 'How much brighter than its background the ball must appear to be detected. Lower = more sensitive, picks up subtler balls. Higher = less sensitive, ignores weak highlights. Adjust until the Armed badge appears reliably when the ball is in the box and disappears when it is removed.'],
+                  ['Ball threshold (↑ stricter)', 'How much brighter than its background the ball must appear. Higher = stricter — only a clearly bright white ball triggers Armed. Lower = more permissive — detects dimmer balls but may false-trigger on bright grass or mats. If Armed stays on without a ball present, raise the threshold. If the ball is in the ROI but Armed never shows, lower it.'],
                   ['Show ball detector view', 'Opens a small draggable window on the video showing exactly what the detector sees: bright areas are highlighted orange-red, the detected ball is circled in green, and a stats bar at the bottom shows mean brightness, threshold, and blob size. Drag the "⠿ Ball View" title bar to move it anywhere on the screen. Use this to tune Ball sens. — you want the ball to light up orange-red while the background stays dim.'],
                 ].map(([name, desc]) => (
                   <div key={name}>
@@ -1172,9 +1172,9 @@ export default function CreateVideos() {
           {config.ballDetectionEnabled && (
             <>
               <div className="flex items-center gap-3">
-                <span className="text-gray-400 text-sm w-20 shrink-0">Ball sens.</span>
+                <span className="text-gray-400 text-sm w-20 shrink-0 leading-tight">Ball thresh.<br/><span className="text-gray-600 text-xs">↑ stricter</span></span>
                 <input
-                  type="range" min={5} max={60} step={5} value={config.ballBrightnessThreshold}
+                  type="range" min={20} max={80} step={5} value={config.ballBrightnessThreshold}
                   onChange={e => {
                     const v = Number(e.target.value)
                     setConfig(prev => ({ ...prev, ballBrightnessThreshold: v }))
@@ -1195,30 +1195,6 @@ export default function CreateVideos() {
               </label>
             </>
           )}
-
-          {/* View profiles */}
-          <div className="flex items-center gap-3">
-            <span className="text-gray-400 text-sm w-20 shrink-0">Profiles</span>
-            <div className="flex gap-2 flex-wrap flex-1">
-              {(['F', 'D'] as const).map(type => (
-                <div key={type} className="flex gap-1">
-                  <button
-                    onClick={() => saveProfile(type)}
-                    className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${flashedBtn === `save-${type}` ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
-                  >
-                    {flashedBtn === `save-${type}` ? '✓ Saved' : `Save ${type === 'F' ? 'Front' : 'DTL'}`}
-                  </button>
-                  <button
-                    onClick={() => loadProfile(type)}
-                    disabled={!profiles[type]}
-                    className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer disabled:opacity-30 disabled:cursor-default transition-colors ${flashedBtn === `load-${type}` ? 'bg-blue-600 text-white' : 'bg-green-800 hover:bg-green-700 text-green-200'}`}
-                  >
-                    {flashedBtn === `load-${type}` ? '✓ Loaded' : `Load ${type === 'F' ? 'Front' : 'DTL'}`}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
 
           {/* Action row: ROI hint, Calibrate, Debug, Reset box, Export */}
           <div className="flex flex-wrap gap-2 items-center justify-between">
@@ -1285,6 +1261,30 @@ export default function CreateVideos() {
             Front <span className="text-gray-500 text-xs ml-1">(unchecked = Down the line · files saved as …_{isFront ? 'F' : 'D'}.mp4)</span>
           </span>
         </label>
+      </div>
+
+      {/* View profiles — always visible so profiles can be loaded before camera starts */}
+      <div className="w-full max-w-2xl flex items-center gap-3">
+        <span className="text-gray-400 text-sm w-20 shrink-0">Profiles</span>
+        <div className="flex gap-2 flex-wrap flex-1">
+          {(['F', 'D'] as const).map(type => (
+            <div key={type} className="flex gap-1">
+              <button
+                onClick={() => saveProfile(type)}
+                className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${flashedBtn === `save-${type}` ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}
+              >
+                {flashedBtn === `save-${type}` ? '✓ Saved' : `Save ${type === 'F' ? 'Front' : 'DTL'}`}
+              </button>
+              <button
+                onClick={() => loadProfile(type)}
+                disabled={!profiles[type]}
+                className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer disabled:opacity-30 disabled:cursor-default transition-colors ${flashedBtn === `load-${type}` ? 'bg-blue-600 text-white' : 'bg-green-800 hover:bg-green-700 text-green-200'}`}
+              >
+                {flashedBtn === `load-${type}` ? '✓ Loaded' : `Load ${type === 'F' ? 'Front' : 'DTL'}`}
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-3">
