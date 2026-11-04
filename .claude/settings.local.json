@@ -16,7 +16,8 @@
       "Bash(npm run *)",
       "Bash(Get-ChildItem -Path \"D:\\\\awsGitRepos\\\\swing-analyzer\\\\src\" -Filter \"*.tsx\")",
       "Bash(Select-Object Name)",
-      "Bash(git -C D:/awsGitRepos/swing-analyzer diff HEAD~1 -- src/App.tsx)"
+      "Bash(git -C D:/awsGitRepos/swing-analyzer diff HEAD~1 -- src/App.tsx)",
+      "Bash(node *)"
     ]
   }
 }

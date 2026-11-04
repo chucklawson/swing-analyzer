@@ -9,13 +9,10 @@ import RoiOverlay from './components/RoiOverlay.tsx'
 import DebugPanel from './components/DebugPanel.tsx'
 import type { VideoFitInfo } from './lib/roiCoords.ts'
 
-const PRE_ROLL_MS         = 1500
-const POST_ROLL_MS        = 2000
-const CHUNK_MS            = 100
-const BUFFER_MS           = 1500
-// Restart recorder only after each clip — keeps the init chunk close in time
-// to the pre-roll chunks without randomly wiping the buffer mid-session.
-const RECORDER_RESTART_MS = 60000
+const PRE_ROLL_MS  = 1500
+const POST_ROLL_MS = 2000
+const CHUNK_MS     = 100
+const BUFFER_MS    = 1500
 
 // iPadOS 13+ in desktop mode reports as MacIntel but has maxTouchPoints > 1
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -192,7 +189,7 @@ export default function CreateVideos() {
 
   const rollingRecRef     = useRef<MediaRecorder | null>(null)
   const rollingIntRef     = useRef<ReturnType<typeof setInterval> | null>(null)
-  const restartTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const restartTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null) // used only for warmup guard on start
   const postRollTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reviewTimeoutRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
   const rollingInitRef    = useRef<Blob | null>(null)
@@ -526,14 +523,6 @@ export default function CreateVideos() {
     rollingIntRef.current = setInterval(() => {
       if (rec.state === 'recording') rec.requestData()
     }, CHUNK_MS)
-
-    // Periodic restart keeps the init chunk timestamps from drifting too far
-    restartTimerRef.current = setTimeout(() => {
-      if (!capturingRef.current && rec === rollingRecRef.current) {
-        stopRollingRecorder()
-        startRollingRecorder()
-      }
-    }, RECORDER_RESTART_MS)
   }
 
   function trigger(ts?: number) {

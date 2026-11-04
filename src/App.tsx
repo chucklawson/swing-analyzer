@@ -86,21 +86,24 @@ function computePoseAngles(lm: { x: number; y: number }[]): PoseAngles {
 
 // Cached across both player instances so the model only loads once
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let cachedLandmarker: any = null
+let cachedLandmarker: any = null   // reset on each module load — never persists across page reloads
 
 async function getPoseLandmarker() {
   if (cachedLandmarker) return cachedLandmarker
   const { PoseLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision')
   const vision = await FilesetResolver.forVisionTasks(
-    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm'
   )
   cachedLandmarker = await PoseLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath:
-        'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+        'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
     },
-    runningMode: 'IMAGE',
+    runningMode: 'VIDEO',
     numPoses: 1,
+    minPoseDetectionConfidence: 0.3,
+    minPosePresenceConfidence: 0.3,
+    minTrackingConfidence: 0.3,
   })
   return cachedLandmarker
 }
@@ -162,6 +165,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [clipsLoading, setClipsLoading] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const [selectedClips, setSelectedClips] = useState<Set<string>>(new Set())
+  const [exportAllFlash, setExportAllFlash] = useState<'idle' | 'working' | 'done'>('idle')
   const poseResultRef = useRef<{ x: number; y: number; z: number }[] | null>(null)
   const poseActiveRef = useRef(false)
   const animFrameRef = useRef<number | null>(null)
@@ -562,7 +566,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       return
     }
     if (cachedLandmarker) {
-      const result = cachedLandmarker.detect(video)
+      const result = cachedLandmarker.detectForVideo(video, performance.now())
       if (result.landmarks.length > 0) {
         poseResultRef.current = result.landmarks[0]
         redrawCanvas()
@@ -716,21 +720,29 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
 
   async function exportAllOpfsClips() {
     if (opfsClips.length === 0) return
-    const files = await Promise.all(opfsClips.map(async clip => {
-      const raw = await clip.handle.getFile()
-      return new File([raw], clip.name, { type: raw.type || 'video/mp4' })
-    }))
-    if (navigator.share && navigator.canShare?.({ files })) {
-      try { await navigator.share({ files }); return } catch { /* cancelled */ }
-    }
-    // Fallback: sequential anchor downloads
-    for (const file of files) {
-      const url = URL.createObjectURL(file)
-      const a = document.createElement('a')
-      a.href = url; a.download = file.name
-      document.body.appendChild(a); a.click(); document.body.removeChild(a)
-      setTimeout(() => URL.revokeObjectURL(url), 2000)
-      await new Promise(r => setTimeout(r, 500))
+    setExportAllFlash('working')
+    try {
+      const files = await Promise.all(opfsClips.map(async clip => {
+        const raw = await clip.handle.getFile()
+        return new File([raw], clip.name, { type: raw.type || 'video/mp4' })
+      }))
+      if (navigator.share && navigator.canShare?.({ files })) {
+        try { await navigator.share({ files }) } catch { /* cancelled */ }
+      } else {
+        // Fallback: sequential anchor downloads
+        for (const file of files) {
+          const url = URL.createObjectURL(file)
+          const a = document.createElement('a')
+          a.href = url; a.download = file.name
+          document.body.appendChild(a); a.click(); document.body.removeChild(a)
+          setTimeout(() => URL.revokeObjectURL(url), 2000)
+          await new Promise(r => setTimeout(r, 500))
+        }
+      }
+      setExportAllFlash('done')
+      setTimeout(() => setExportAllFlash('idle'), 2000)
+    } catch {
+      setExportAllFlash('idle')
     }
   }
 
@@ -826,7 +838,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     setPoseStatus('loading')
     try {
       const landmarker = await getPoseLandmarker()
-      const result = landmarker.detect(video)
+      const result = landmarker.detectForVideo(video, performance.now())
       if (result.landmarks.length > 0) {
         poseResultRef.current = result.landmarks[0]
         poseActiveRef.current = true
@@ -1205,7 +1217,17 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                   <div className="flex items-center gap-3">
                     {opfsClips.length > 0 && (
                       <>
-                        <button onClick={exportAllOpfsClips} className="px-3 py-1 rounded-lg bg-blue-700 hover:bg-blue-600 text-white text-sm font-medium transition-colors">Export All</button>
+                        <button
+                          onClick={exportAllOpfsClips}
+                          disabled={exportAllFlash === 'working'}
+                          className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors disabled:cursor-default ${
+                            exportAllFlash === 'done'    ? 'bg-green-600 text-white' :
+                            exportAllFlash === 'working' ? 'bg-blue-800 text-blue-300' :
+                            'bg-blue-700 hover:bg-blue-600 text-white'
+                          }`}
+                        >
+                          {exportAllFlash === 'done' ? '✓ Exported' : exportAllFlash === 'working' ? 'Exporting…' : 'Export All'}
+                        </button>
                         <button onClick={toggleSelectMode} className="px-3 py-1 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium transition-colors">Select</button>
                       </>
                     )}
