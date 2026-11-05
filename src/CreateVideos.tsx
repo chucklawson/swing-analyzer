@@ -30,7 +30,7 @@ const sleep = (ms: number) => new Promise<void>(res => setTimeout(res, ms))
 
 interface Chunk { data: Blob; ts: number }
 
-function makeFilename(ext: string, label: 'F' | 'D') {
+function makeFilename(ext: string, label: 'F' | 'D', impactMs: number) {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
   const date = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`
@@ -38,7 +38,8 @@ function makeFilename(ext: string, label: 'F' | 'D') {
   const key   = `clip-count-${date}`
   const count = (parseInt(localStorage.getItem(key) ?? '0') + 1)
   localStorage.setItem(key, String(count))
-  return `${date}_${time}_${count}_${label}.${ext}`
+  const impact = String(Math.round(impactMs)).padStart(4, '0')
+  return `${date}_${time}_${count}_${label}_${impact}.${ext}`
 }
 
 function pickMime() {
@@ -586,7 +587,7 @@ export default function CreateVideos() {
           let blob = new Blob([initData, ...clipChunks.map(c => c.data)], { type: mime })
           if (mime.startsWith('video/webm')) blob = await webmNormalizeTimecodes(blob)
           else if (mime.includes('mp4'))    blob = await mp4NormalizeTimecodes(blob)
-          const filename = makeFilename(ext, isFrontRef.current ? 'F' : 'D')
+          const filename = makeFilename(ext, isFrontRef.current ? 'F' : 'D', PRE_ROLL_MS)
           saveClip(blob, filename)
           showReview(blob)
         })
@@ -686,7 +687,7 @@ export default function CreateVideos() {
       const toDelete: string[] = []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for await (const [name, handle] of (root as any).entries()) {
-        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD]\.(mp4|webm)$/.test(name)) {
+        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD](?:_\d+)?\.(mp4|webm)$/.test(name)) {
           toDelete.push(name)
         }
       }
@@ -1029,7 +1030,7 @@ export default function CreateVideos() {
             {/* File names */}
             <section className="flex flex-col gap-2">
               <h3 className="font-semibold text-green-400">File names</h3>
-              <p className="text-gray-300 leading-relaxed">Files are saved as <span className="font-mono text-green-300 text-xs">YYYYMMDD_HHMMSS_count_F.mp4</span> (or <span className="font-mono text-green-300 text-xs">_D.mp4</span>). The count resets each day. All clips are saved automatically to the browser's private storage (OPFS) and accessible from the My Clips browser on the home screen.</p>
+              <p className="text-gray-300 leading-relaxed">Files are saved as <span className="font-mono text-green-300 text-xs">YYYYMMDD_HHMMSS_count_F_1500.mp4</span> (or <span className="font-mono text-green-300 text-xs">_D_1500.mp4</span>). The <span className="font-mono text-green-300 text-xs">_1500</span> suffix encodes the impact time in milliseconds from the start of the clip. The count resets each day. All clips are saved automatically to the browser's private storage (OPFS) and accessible from the My Clips browser on the home screen.</p>
             </section>
 
 

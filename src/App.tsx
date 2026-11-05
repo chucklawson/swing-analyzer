@@ -11,12 +11,18 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 const hasOpfs = 'storage' in navigator && typeof (navigator.storage as any).getDirectory === 'function'
 
 function formatClipName(name: string): string {
-  // New format: YYYYMMDD_HHMMSS_count_[F|D].mp4
-  const m = name.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_(\d+)_([FD])\.(mp4|webm)$/)
+  const m = name.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_(\d+)_([FD])(?:_\d+)?\.(mp4|webm)$/)
   if (!m) return name
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const view = m[8] === 'F' ? 'Front' : 'Down-the-line'
   return `${months[parseInt(m[2])-1]} ${parseInt(m[3])} · Clip ${m[7]} · ${view} · ${m[4]}:${m[5]}:${m[6]}`
+}
+
+function parseImpactMs(name: string): number | null {
+  const parts = name.replace(/\.(mp4|webm)$/, '').split('_')
+  if (parts.length !== 5) return null
+  const ms = parseInt(parts[4], 10)
+  return isNaN(ms) ? null : ms
 }
 
 const PALETTE = ['#ffffff', '#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#a855f7']
@@ -141,6 +147,7 @@ interface ZoomState {
 const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label }, ref) => {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [videoName, setVideoName] = useState<string>('')
+  const [impactMs, setImpactMs] = useState<number | null>(null)
   const [isPaused, setIsPaused] = useState(false)
   const [drag, setDrag] = useState<DragState | null>(null)
   const [zoom, setZoom] = useState<ZoomState | null>(null)
@@ -565,6 +572,25 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     }
   }
 
+  function seekToImpact() {
+    const video = videoRef.current
+    if (!video || impactMs === null) return
+    video.pause()
+    setIsPaused(true)
+    video.currentTime = impactMs / 1000
+    if (poseActiveRef.current && cachedLandmarker) {
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked)
+        const result = cachedLandmarker.detect(video)
+        if (result.landmarks.length > 0) {
+          poseResultRef.current = result.landmarks[0]
+          redrawCanvas()
+        }
+      }
+      video.addEventListener('seeked', onSeeked)
+    }
+  }
+
   function runPoseLoop() {
     const video = videoRef.current
     if (!video || !poseActiveRef.current || video.paused || video.ended) {
@@ -621,6 +647,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     if (videoUrl) URL.revokeObjectURL(videoUrl)
     setVideoUrl(URL.createObjectURL(file))
     setVideoName(file.name)
+    setImpactMs(parseImpactMs(file.name))
     setIsPaused(true)
     setZoom(null)
     setZoomMode(false)
@@ -639,7 +666,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       const clips: { name: string; handle: any }[] = []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for await (const [name, handle] of (root as any).entries()) {
-        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD]\.(mp4|webm)$/.test(name)) {
+        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD](?:_\d+)?\.(mp4|webm)$/.test(name)) {
           clips.push({ name, handle })
         }
       }
@@ -655,6 +682,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     if (videoUrl) URL.revokeObjectURL(videoUrl)
     setVideoUrl(URL.createObjectURL(file))
     setVideoName(file.name)
+    setImpactMs(parseImpactMs(file.name))
     setIsPaused(true)
     setZoom(null)
     setZoomMode(false)
@@ -1098,6 +1126,14 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
 
           {/* Playback controls */}
           <div className="flex items-center gap-2 flex-wrap justify-center">
+            {impactMs !== null && (
+              <button
+                onClick={seekToImpact}
+                className="px-4 py-2 rounded-lg bg-orange-700 hover:bg-orange-600 text-white font-mono text-sm transition-colors"
+              >
+                Impact
+              </button>
+            )}
             <button
               onClick={reset}
               className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white font-mono text-sm transition-colors"
