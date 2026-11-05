@@ -1556,7 +1556,7 @@ export default function CreateVideos() {
             onClick={() => { flash('stop'); setTimeout(teardown, 250) }}
             className={`px-8 py-3 rounded-xl font-semibold active:scale-95 transition-all cursor-pointer ${flashedBtn === 'stop' ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
           >
-            {flashedBtn === 'stop' ? '✓ Stopping…' : 'Stop'}
+            {flashedBtn === 'stop' ? '✓ Stopping…' : 'Stop Camera'}
           </button>
         )}
       </div>

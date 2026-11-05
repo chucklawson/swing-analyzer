@@ -148,6 +148,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [drawMode, setDrawMode] = useState(false)
   const [drawColor, setDrawColor] = useState(PALETTE[0])
   const [hasStartPoint, setHasStartPoint] = useState(false)
+  const [centerMode, setCenterMode] = useState(false)
   const [playbackFPS, setPlaybackFPS] = useState(FRAME_RATE)
   const [poseStatus, setPoseStatus] = useState<'idle' | 'loading' | 'detected' | 'none'>('idle')
   const [showWristAngles, setShowWristAngles] = useState(false)
@@ -178,7 +179,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const drawStartRef = useRef<DrawStart | null>(null)
   const zoomModeRef = useRef(zoomMode)
   const currentZoomRef = useRef(zoom)
-  const drawModeRef = useRef(drawMode)
+  const drawModeRef   = useRef(drawMode)
+  const centerModeRef = useRef(false)
   const pinchRef = useRef<{ startDist: number; startScale: number; originX: number; originY: number } | null>(null)
   const panStartRef = useRef<{ startX: number; startY: number; startOriginX: number; startOriginY: number } | null>(null)
 
@@ -420,6 +422,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   useEffect(() => { zoomModeRef.current = zoomMode }, [zoomMode])
   useEffect(() => { currentZoomRef.current = zoom }, [zoom])
   useEffect(() => { drawModeRef.current = drawMode }, [drawMode])
+  useEffect(() => { centerModeRef.current = centerMode }, [centerMode])
   useEffect(() => {
     const video = videoRef.current
     if (video) video.playbackRate = playbackFPS / FRAME_RATE
@@ -619,6 +622,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     setZoom(null)
     setZoomMode(false)
     setDrawMode(false)
+    setCenterMode(false)
   }
 
   async function openClipBrowser() {
@@ -651,6 +655,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     setZoom(null)
     setZoomMode(false)
     setDrawMode(false)
+    setCenterMode(false)
     setShowClips(false)
   }
 
@@ -795,9 +800,20 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   }
 
   // --- Draw handlers (two-click/two-tap: first sets start point, second draws line) ---
+  function placeCenterLines(x: number, y: number) {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const hw = canvas.width  / 4   // half of half-width  → extends ±quarter from center
+    const hh = canvas.height / 4
+    linesRef.current.push({ x1: x - hw, y1: y,     x2: x + hw, y2: y,     color: drawColor })
+    linesRef.current.push({ x1: x,      y1: y - hh, x2: x,     y2: y + hh, color: drawColor })
+    redrawCanvas()
+  }
+
   function handleCanvasClick(e: React.MouseEvent) {
-    if (!drawMode) return
     const { x, y } = getCoordsRelativeToContainer(e)
+    if (centerMode) { placeCenterLines(x, y); return }
+    if (!drawMode) return
     if (!drawStartRef.current) {
       drawStartRef.current = { x, y, color: drawColor }
       setHasStartPoint(true)
@@ -811,7 +827,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   }
 
   function handleCanvasTouchEnd(e: React.TouchEvent) {
-    if (!drawMode) return
+    if (!drawMode && !centerMode) return
     e.preventDefault()
     const canvas = canvasRef.current
     if (!canvas) return
@@ -819,6 +835,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     const touch = e.changedTouches[0]
     const x = touch.clientX - rect.left
     const y = touch.clientY - rect.top
+    if (centerMode) { placeCenterLines(x, y); return }
     if (!drawStartRef.current) {
       drawStartRef.current = { x, y, color: drawColor }
       setHasStartPoint(true)
@@ -937,8 +954,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                 ref={canvasRef}
                 className="absolute inset-0 rounded-xl"
                 style={{
-                  pointerEvents: drawMode ? 'auto' : 'none',
-                  cursor: drawMode ? 'crosshair' : 'default',
+                  pointerEvents: (drawMode || centerMode) ? 'auto' : 'none',
+                  cursor: (drawMode || centerMode) ? 'crosshair' : 'default',
                   ...(zoom ? { transform: `scale(${zoom.scale})`, transformOrigin: `${zoom.originX}px ${zoom.originY}px` } : {}),
                 }}
                 onClick={handleCanvasClick}
@@ -956,6 +973,11 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
               {drawMode && (
                 <div className="absolute bottom-3 left-3 bg-black/75 text-white text-sm font-medium px-4 py-1.5 rounded-full pointer-events-none z-10 select-none">
                   {hasStartPoint ? 'Select ending point' : 'Select starting point'}
+                </div>
+              )}
+              {centerMode && (
+                <div className="absolute bottom-3 left-3 bg-black/75 text-white text-sm font-medium px-4 py-1.5 rounded-full pointer-events-none z-10 select-none">
+                  Tap to place centered H + V lines
                 </div>
               )}
 
@@ -1032,8 +1054,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
             </div>
           </div>
 
-          {/* Color palette — only shown in draw mode */}
-          {drawMode && (
+          {/* Color palette — shown in draw or center-lines mode */}
+          {(drawMode || centerMode) && (
             <div className="flex items-center gap-2">
               {PALETTE.map(color => (
                 <button
@@ -1095,7 +1117,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
               </button>
             ) : (
               <button
-                onClick={() => { setZoomMode(m => !m); setDrawMode(false) }}
+                onClick={() => { setZoomMode(m => !m); setDrawMode(false); setCenterMode(false); drawStartRef.current = null; setHasStartPoint(false) }}
                 className={`px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors ${zoomMode ? 'bg-amber-600 hover:bg-amber-500' : 'bg-gray-800 hover:bg-gray-700'}`}
               >
                 🔍 Zoom
@@ -1108,10 +1130,23 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                   return !m
                 })
                 setZoomMode(false)
+                setCenterMode(false)
               }}
               className={`px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors ${drawMode ? 'bg-sky-600 hover:bg-sky-500' : 'bg-gray-800 hover:bg-gray-700'}`}
             >
               ✏️ Draw
+            </button>
+            <button
+              onClick={() => {
+                setCenterMode(m => !m)
+                setDrawMode(false)
+                setZoomMode(false)
+                drawStartRef.current = null
+                setHasStartPoint(false)
+              }}
+              className={`px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors ${centerMode ? 'bg-sky-600 hover:bg-sky-500' : 'bg-gray-800 hover:bg-gray-700'}`}
+            >
+              ⊕ H+V
             </button>
             {poseStatus === 'detected' ? (
               <button
