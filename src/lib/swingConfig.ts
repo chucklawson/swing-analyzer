@@ -38,7 +38,7 @@ export const DEFAULT_CONFIG: SwingConfig = {
   micGain: 4,
   ballDetectionEnabled: true,
   ballBrightnessThreshold: 30,
-  ballMinPixels: 2,
+  ballMinPixels: 10,
   ballMaxPixels: 6000,
   roi: { x: 0.36, y: 0.79, w: 0.28, h: 0.14 },
   showDebugPanel: false,
@@ -53,7 +53,10 @@ export function loadConfig(): SwingConfig {
     if (!raw) return { ...DEFAULT_CONFIG }
     const saved = JSON.parse(raw) as Partial<SwingConfig>
     // audioOnlyMode is always true — motion detection is not active
-    return { ...DEFAULT_CONFIG, ...saved, audioOnlyMode: true }
+    const merged = { ...DEFAULT_CONFIG, ...saved, audioOnlyMode: true }
+    // Enforce minimum blob size — older saved configs may have 2 (no filter)
+    merged.ballMinPixels = Math.max(merged.ballMinPixels, DEFAULT_CONFIG.ballMinPixels)
+    return merged
   } catch {
     return { ...DEFAULT_CONFIG }
   }
