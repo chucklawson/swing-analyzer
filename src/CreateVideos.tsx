@@ -26,6 +26,8 @@ const iosBrowser: 'chrome' | 'firefox' | 'edge' | 'safari' = (() => {
   return 'safari'
 })()
 
+const sleep = (ms: number) => new Promise<void>(res => setTimeout(res, ms))
+
 interface Chunk { data: Blob; ts: number }
 
 function makeFilename(ext: string, label: 'F' | 'D') {
@@ -238,6 +240,10 @@ export default function CreateVideos() {
   const [debugPos,     setDebugPos]     = useState({ x: 10, y: 60 })
   const [ballDebugOpen, setBallDebugOpen] = useState(false)
   const debugDragRef   = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
+
+  const [calibPhase,  setCalibPhase]  = useState<null | 'waiting' | 'ball' | 'mic' | 'done'>(null)
+  const [calibStatus, setCalibStatus] = useState('')
+  const calibCancelRef = useRef(false)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasFsApi = 'showDirectoryPicker' in (window as any)
@@ -655,6 +661,172 @@ export default function CreateVideos() {
     rev.load()
     reviewTimeoutRef.current = setTimeout(finish, PRE_ROLL_MS + POST_ROLL_MS + 5000)
   }
+
+  // ── Auto-calibrate ──────────────────────────────────────────────────────────
+
+  function startCalibrate() {
+    calibCancelRef.current = false
+    setCalibPhase('waiting')
+    setCalibStatus('Place ball near the ROI box, then tap Continue')
+  }
+
+  function cancelCalibrate() {
+    calibCancelRef.current = true
+    setCalibPhase(null)
+    setCalibStatus('')
+  }
+
+  async function continueCalibrate() {
+    const clamp01 = (v: number, max: number) => Math.max(0, Math.min(max, v))
+
+    // ── Ensure ball detection is running at the most permissive threshold ──
+    setCalibPhase('ball')
+    if (!ballDetectorRef.current && videoRef.current) {
+      setConfig(prev => ({ ...prev, ballDetectionEnabled: true }))
+      const bd = new BallDetector({
+        brightnessThreshold: 20,
+        minBlobPixels:       configRef.current.ballMinPixels,
+        maxBlobPixels:       configRef.current.ballMaxPixels,
+        everyNthFrame:       2,
+      })
+      bd.onBallDetected(pos => { armedRef.current = true;  setArmed(true);  setBallPos(pos) })
+      bd.onBallLost(()    => { armedRef.current = false; setArmed(false); setBallPos(null) })
+      bd.start(videoRef.current, () => roiRef.current)
+      ballDetectorRef.current = bd
+    } else {
+      ballDetectorRef.current?.updateConfig({ brightnessThreshold: 20 })
+      setConfig(prev => ({ ...prev, ballBrightnessThreshold: 20 }))
+    }
+
+    // ── Phase 0: scan ROI position to locate ball ──────────────────────────
+    setCalibStatus('Scanning for ball…')
+    await sleep(500)   // let detector stabilise at threshold 20
+
+    let ballFound = ballDetectorRef.current?.currentPosition() !== null
+
+    if (!ballFound) {
+      const startRoi = roiRef.current
+      // Front view scans X; DTL scans Y
+      const scanAxis  = isFrontRef.current ? 'x' : 'y'
+      const sizeKey   = scanAxis === 'x' ? 'w' : 'h'
+      const maxOffset = 1 - startRoi[sizeKey]   // can't go past frame edge
+
+      const offsets: number[] = []
+      for (let step = 1; step <= 6; step++) {
+        offsets.push( step * 0.03)
+        offsets.push(-step * 0.03)
+      }
+
+      for (const offset of offsets) {
+        if (calibCancelRef.current) return
+        const newVal = clamp01(startRoi[scanAxis] + offset, maxOffset)
+        const newRoi = { ...startRoi, [scanAxis]: newVal }
+        setRoi(newRoi)
+        await sleep(300)
+        if (ballDetectorRef.current?.currentPosition() !== null) { ballFound = true; break }
+      }
+
+      // If still not found, restore original ROI position
+      if (!ballFound) setRoi(startRoi)
+    }
+
+    if (calibCancelRef.current) return
+
+    if (ballFound) {
+      // Re-centre ROI on detected ball position
+      const pos = ballDetectorRef.current!.currentPosition()!
+      const r   = roiRef.current
+      setRoi({
+        ...r,
+        x: clamp01(pos.nx - r.w / 2, 1 - r.w),
+        y: clamp01(pos.ny - r.h / 2, 1 - r.h),
+      })
+      await sleep(200)
+    } else {
+      setCalibStatus('Ball not found — skipping threshold calibration')
+      await sleep(1500)
+    }
+
+    if (calibCancelRef.current) return
+
+    // ── Phase 1: sweep ball brightness threshold ───────────────────────────
+    let bestThreshold = 20
+    if (ballFound) {
+      setCalibStatus('Finding threshold…')
+      for (let t = 20; t <= 80; t += 5) {
+        if (calibCancelRef.current) return
+        setConfig(prev => ({ ...prev, ballBrightnessThreshold: t }))
+        ballDetectorRef.current?.updateConfig({ brightnessThreshold: t })
+        await sleep(350)
+        if (ballDetectorRef.current?.currentPosition() !== null) {
+          bestThreshold = t
+        } else if (t > 20) {
+          break
+        }
+      }
+      // Apply and re-confirm
+      setConfig(prev => ({ ...prev, ballBrightnessThreshold: bestThreshold }))
+      ballDetectorRef.current?.updateConfig({ brightnessThreshold: bestThreshold })
+    }
+
+    if (calibCancelRef.current) return
+
+    // ── Phase 2: ramp mic gain until background is in target range ─────────
+    setCalibPhase('mic')
+
+    const TARGET_LOW  = 10
+    const TARGET_HIGH = 25
+    let gain = 1
+
+    setConfig(prev => ({ ...prev, micGain: gain }))
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = gain
+
+    const sampleBackground = async (): Promise<number> => {
+      const samples: number[] = []
+      const t0 = Date.now()
+      while (Date.now() - t0 < 500) {
+        samples.push(peakLevelRef.current)
+        await sleep(50)
+        if (calibCancelRef.current) return 0
+      }
+      samples.sort((a, b) => a - b)
+      return samples[Math.floor(samples.length / 2)]
+    }
+
+    for (let attempt = 0; attempt < 12; attempt++) {
+      if (calibCancelRef.current) return
+      const bg = await sampleBackground()
+      if (calibCancelRef.current) return
+      if (bg >= TARGET_LOW && bg <= TARGET_HIGH) break
+      if (bg < TARGET_LOW) {
+        gain = Math.min(10, gain + 1)
+        setCalibStatus(`Mic too quiet (${bg}%) — boosting…`)
+      } else {
+        gain = Math.max(1, gain - 0.5)
+        setCalibStatus(`Mic too loud (${bg}%) — reducing…`)
+      }
+      setConfig(prev => ({ ...prev, micGain: gain }))
+      if (gainNodeRef.current) gainNodeRef.current.gain.value = gain
+    }
+
+    if (calibCancelRef.current) return
+
+    // Derive spike ratio from final background sample
+    const finalBg = await sampleBackground()
+    const spikeRatio = finalBg < 15 ? 2.0 : finalBg < 25 ? 2.5 : 3.0
+    setConfig(prev => ({ ...prev, audioSpikeRatio: spikeRatio }))
+    audioDetectorRef.current?.updateConfig({ audioSpikeRatio: spikeRatio })
+
+    // ── Done ───────────────────────────────────────────────────────────────
+    const ballPart  = ballFound ? ` · Ball thr ${bestThreshold}` : ''
+    const gainFixed = Number.isInteger(gain) ? `${gain}` : gain.toFixed(1)
+    setCalibPhase('done')
+    setCalibStatus(`Done — Mic ${gainFixed}× · Ratio ${spikeRatio}${ballPart}`)
+    await sleep(3000)
+    if (!calibCancelRef.current) setCalibPhase(null)
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
 
   function teardown() {
     if (postRollTimerRef.current) clearTimeout(postRollTimerRef.current)
@@ -1185,12 +1357,45 @@ export default function CreateVideos() {
             </>
           )}
 
-          {/* Action row: ROI hint, Calibrate, Debug, Reset box, Export */}
+          {/* Calibration banner */}
+          {calibPhase && (
+            <div className="bg-indigo-900/60 border border-indigo-700 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+              <span className="text-sm text-indigo-200 flex-1">{calibStatus}</span>
+              <div className="flex gap-2">
+                {calibPhase === 'waiting' && (
+                  <button
+                    onClick={continueCalibrate}
+                    className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs cursor-pointer"
+                  >
+                    Continue
+                  </button>
+                )}
+                {calibPhase !== 'done' && (
+                  <button
+                    onClick={cancelCalibrate}
+                    className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Action row: ROI hint, Auto-Cal, Debug, Reset box, Export */}
           <div className="flex flex-wrap gap-2 items-center justify-between">
             <p className="text-gray-600 text-xs flex-1 min-w-48">
               Draw a box around the ball &amp; club head area, then keep the camera still.
             </p>
             <div className="flex gap-2 flex-wrap">
+              {status === 'listening' && calibPhase === null && (
+                <button
+                  onClick={startCalibrate}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-indigo-100 text-xs cursor-pointer"
+                >
+                  Auto-Cal
+                </button>
+              )}
               <button
                 onClick={() => { flash('reset-box'); setRoi(DEFAULT_CONFIG.roi) }}
                 className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${flashedBtn === 'reset-box' ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}

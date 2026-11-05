@@ -60,7 +60,7 @@ export default function SplashPage() {
           onClick={() => navigate('/create-videos')}
           className="px-10 py-4 rounded-xl text-lg font-semibold text-white border-2 border-white hover:bg-white hover:text-gray-900 active:scale-95 transition-all duration-150 cursor-pointer w-64"
         >
-          Create Videos →
+          Capture Live Swings →
         </button>
       </div>
 
