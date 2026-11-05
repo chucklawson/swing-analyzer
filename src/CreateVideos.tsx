@@ -231,22 +231,28 @@ export default function CreateVideos() {
   const [armed,        setArmed]        = useState(false)
   const [bgLevel,      setBgLevel]      = useState(0)
   const [flashedBtn,   setFlashedBtn]   = useState<string | null>(null)
-  const [profiles,     setProfiles]     = useState<{ F: boolean; D: boolean }>(() => ({
+  const [profiles,         setProfiles]         = useState<{ F: boolean; D: boolean }>(() => ({
     F: !!localStorage.getItem('swing-config-profile-F'),
     D: !!localStorage.getItem('swing-config-profile-D'),
   }))
+  const [profileSaveError, setProfileSaveError] = useState<string | null>(null)
   const [ballPos,      setBallPos]      = useState<BallPosition | null>(null)
   const ballDebugCanvasRef = useRef<HTMLCanvasElement>(null)
   const [debugPos,     setDebugPos]     = useState({ x: 10, y: 60 })
   const [ballDebugOpen, setBallDebugOpen] = useState(false)
   const debugDragRef   = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
 
-  const [calibPhase,  setCalibPhase]  = useState<null | 'waiting' | 'ball' | 'mic' | 'done'>(null)
-  const [calibStatus, setCalibStatus] = useState('')
+  const [calibPhase,     setCalibPhase]     = useState<null | 'waiting' | 'ball' | 'mic' | 'done'>(null)
+  const [calibStatus,    setCalibStatus]    = useState('')
   const calibCancelRef = useRef(false)
 
+  const [clearStatus,    setClearStatus]    = useState<null | 'clearing' | 'done'>(null)
+  const [clearCount,     setClearCount]     = useState(0)
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hasFsApi = 'showDirectoryPicker' in (window as any)
+  const hasFsApi  = 'showDirectoryPicker' in (window as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hasOpfs   = 'storage' in navigator && typeof (navigator.storage as any).getDirectory === 'function'
 
   useEffect(() => () => teardown(), [])
   // Persist config when it changes
@@ -285,9 +291,14 @@ export default function CreateVideos() {
   }
 
   function saveProfile(type: 'F' | 'D') {
-    localStorage.setItem(`swing-config-profile-${type}`, JSON.stringify({ ...config, roi }))
-    setProfiles(prev => ({ ...prev, [type]: true }))
-    flash(`save-${type}`)
+    try {
+      localStorage.setItem(`swing-config-profile-${type}`, JSON.stringify({ ...config, roi }))
+      setProfiles(prev => ({ ...prev, [type]: true }))
+      flash(`save-${type}`)
+    } catch {
+      setProfileSaveError('Save failed — browser storage may be full or blocked. Try clearing site data in browser settings.')
+      setTimeout(() => setProfileSaveError(null), 5000)
+    }
   }
 
   function loadProfile(type: 'F' | 'D') {
@@ -660,6 +671,33 @@ export default function CreateVideos() {
     rev.src = url
     rev.load()
     reviewTimeoutRef.current = setTimeout(finish, PRE_ROLL_MS + POST_ROLL_MS + 5000)
+  }
+
+  // ── Clear all clips ─────────────────────────────────────────────────────────
+
+  async function clearAllClips() {
+    if (clearStatus === 'clearing') return
+    setClearStatus('clearing')
+    setClearCount(0)
+    let count = 0
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const root = await (navigator.storage as any).getDirectory()
+      const toDelete: string[] = []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for await (const [name, handle] of (root as any).entries()) {
+        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD]\.(mp4|webm)$/.test(name)) {
+          toDelete.push(name)
+        }
+      }
+      for (const name of toDelete) {
+        await root.removeEntry(name)
+        count++
+      }
+    } catch { /* non-fatal — partial delete is still progress */ }
+    setClearCount(count)
+    setClearStatus('done')
+    setTimeout(() => setClearStatus(null), 4000)
   }
 
   // ── Auto-calibrate ──────────────────────────────────────────────────────────
@@ -1480,6 +1518,29 @@ export default function CreateVideos() {
           ))}
         </div>
       </div>
+      {profileSaveError && (
+        <p className="text-red-400 text-xs text-center w-full max-w-2xl">{profileSaveError}</p>
+      )}
+
+      {/* Clear all clips */}
+      {hasOpfs && (
+        <div className="w-full max-w-2xl flex items-center gap-3">
+          <span className="text-gray-400 text-sm w-20 shrink-0">Clips</span>
+          <button
+            onClick={clearAllClips}
+            disabled={clearStatus === 'clearing'}
+            className={`px-4 py-2 rounded-lg text-sm cursor-pointer disabled:cursor-wait transition-colors ${
+              clearStatus === 'clearing' ? 'bg-orange-800 text-orange-200 animate-pulse' :
+              clearStatus === 'done'     ? 'bg-green-800 text-green-200' :
+                                          'bg-red-900/70 hover:bg-red-800 text-red-300'
+            }`}
+          >
+            {clearStatus === 'clearing' ? 'Clearing…' :
+             clearStatus === 'done'     ? `✓ Cleared ${clearCount} clip${clearCount !== 1 ? 's' : ''}` :
+                                         'Clear All Clips'}
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-3">
         {status === 'idle' || status === 'starting' ? (
