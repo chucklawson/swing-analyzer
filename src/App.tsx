@@ -543,7 +543,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     if (poseActiveRef.current && cachedLandmarker) {
       const onSeeked = () => {
         video.removeEventListener('seeked', onSeeked)
-        const result = cachedLandmarker.detect(video)
+        const result = cachedLandmarker.detectForVideo(video, performance.now())
         if (result.landmarks.length > 0) {
           poseResultRef.current = result.landmarks[0]
           redrawCanvas()
@@ -562,7 +562,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     if (poseActiveRef.current && cachedLandmarker) {
       const onSeeked = () => {
         video.removeEventListener('seeked', onSeeked)
-        const result = cachedLandmarker.detect(video)
+        const result = cachedLandmarker.detectForVideo(video, performance.now())
         if (result.landmarks.length > 0) {
           poseResultRef.current = result.landmarks[0]
           redrawCanvas()
@@ -575,13 +575,15 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   function seekToImpact() {
     const video = videoRef.current
     if (!video || impactMs === null) return
+    const target = video.duration - impactMs / 1000
+    if (isNaN(target) || target < 0) return
     video.pause()
     setIsPaused(true)
-    video.currentTime = impactMs / 1000
+    video.currentTime = target
     if (poseActiveRef.current && cachedLandmarker) {
       const onSeeked = () => {
         video.removeEventListener('seeked', onSeeked)
-        const result = cachedLandmarker.detect(video)
+        const result = cachedLandmarker.detectForVideo(video, performance.now())
         if (result.landmarks.length > 0) {
           poseResultRef.current = result.landmarks[0]
           redrawCanvas()

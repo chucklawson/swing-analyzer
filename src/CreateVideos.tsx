@@ -587,7 +587,11 @@ export default function CreateVideos() {
           let blob = new Blob([initData, ...clipChunks.map(c => c.data)], { type: mime })
           if (mime.startsWith('video/webm')) blob = await webmNormalizeTimecodes(blob)
           else if (mime.includes('mp4'))    blob = await mp4NormalizeTimecodes(blob)
-          const filename = makeFilename(ext, isFrontRef.current ? 'F' : 'D', PRE_ROLL_MS)
+          // Store ms from trigger to last chunk so the player can seek via
+          // (video.duration - impactMs/1000) — that math works whether or not
+          // timecode normalization produced a perfect T=0 at the first frame.
+          const impactFromEndMs = Math.round(clipChunks[clipChunks.length - 1].ts - triggerTime)
+          const filename = makeFilename(ext, isFrontRef.current ? 'F' : 'D', impactFromEndMs)
           saveClip(blob, filename)
           showReview(blob)
         })
