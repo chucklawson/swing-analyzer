@@ -1387,16 +1387,19 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           {/* Loading Videos */}
           <section>
             <h3 className="text-base font-semibold text-white mb-2">Loading Videos</h3>
-            <p>Tap <span className="text-violet-400 font-medium">Select Video</span> on either panel to load a video file from your device. Both panels work independently — you can load different videos in each. Tap <span className="text-violet-400 font-medium">Select Different Video</span> to swap a video out at any time.</p>
+            <p className="mb-1.5">Tap <span className="text-violet-400 font-medium">Select Video</span> on either panel to load a video file from your device. Both panels work independently — you can load different videos in each. Tap <span className="text-violet-400 font-medium">Change Video</span> to swap a video out at any time.</p>
+            <p>Tap <span className="font-medium text-gray-100">My Clips</span> to browse clips saved by the Create Videos screen. From the clip browser you can load, export, or delete individual clips, or use <span className="font-medium text-gray-100">Select</span> to export or delete multiple clips at once.</p>
           </section>
 
           {/* Playback */}
           <section>
             <h3 className="text-base font-semibold text-white mb-2">Playback Controls</h3>
             <ul className="flex flex-col gap-1.5 list-none">
+              <li><span className="font-mono text-orange-400">Impact</span> — Jump directly to the moment of ball impact. Appears only on clips recorded by the app (the impact time is embedded in the filename). Great for quickly comparing impact position across swings.</li>
               <li><span className="font-mono text-gray-100">⏮</span> — Jump back to the start of the video.</li>
               <li><span className="font-mono text-gray-100">◀ Frame / Frame ▶</span> — Step one frame backward or forward (1/30 sec). Useful for finding the exact moment of impact.</li>
               <li><span className="font-mono text-gray-100">▶ Play / ⏸ Pause</span> — Play or pause the video. Playback speed follows whatever is set in the Speed row.</li>
+              <li><span className="font-medium text-gray-100">⛶ Fullscreen icon</span> (bottom-right corner of the video) — Expands the player to fill the entire screen. Tap it again to return to the normal two-panel view.</li>
             </ul>
           </section>
 
@@ -1441,6 +1444,18 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <p className="mt-2">Use the <span className="font-medium text-gray-100">color dots</span> below the video to change line color. Tap <span className="font-medium text-gray-100">Clear</span> to remove all lines. Tap <span className="text-sky-400 font-medium">✏️ Draw</span> again to exit draw mode — lines stay on screen.</p>
           </section>
 
+          {/* H Line / V Line */}
+          <section>
+            <h3 className="text-base font-semibold text-white mb-2">— H Line &amp; | V Line</h3>
+            <p className="mb-1.5">Drop a perfectly horizontal or vertical reference line through any point on the video — useful for checking address posture, shoulder level, or ball position.</p>
+            <ul className="flex flex-col gap-1.5">
+              <li>Tap <span className="text-sky-400 font-medium">— H Line</span> then tap anywhere on the video. A full-width horizontal line is drawn through that point.</li>
+              <li>Tap <span className="text-sky-400 font-medium">| V Line</span> then tap anywhere on the video. A full-height vertical line is drawn through that point.</li>
+              <li>Each tap replaces the previous H or V line — only one of each is shown at a time.</li>
+              <li>Lines persist when you exit the mode. Use <span className="font-medium text-gray-100">Clear</span> (in Draw mode) to remove all annotation lines including H and V lines.</li>
+            </ul>
+          </section>
+
           {/* Pose */}
           <section>
             <h3 className="text-base font-semibold text-white mb-2">🦴 Pose Analysis</h3>
@@ -1472,6 +1487,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
               <p className="font-medium text-gray-100 mb-1">Wrist angles <span className="text-orange-400">(left hand only)</span></p>
               <p>After Pose is detected, tap <span className="text-orange-400 font-medium">Wrist °</span> to overlay left-hand wrist angle lines with angle readouts.</p>
               <p><span className="text-orange-400 font-medium">Orange line + °</span> — angle at the left wrist formed by the forearm and the line to the left index finger knuckle. Measures wrist cock / bow.</p>
+              <p className="mt-1">Check <span className="font-medium text-gray-100">Arm lines</span> (appears below the controls when Wrist ° is active) to also draw the full forearm and hand segments used to compute the angle.</p>
               <p className="mt-1 text-gray-400">The angle updates live as the video plays. Tap <span className="text-orange-400 font-medium">Wrist °</span> again to hide the overlay.</p>
             </div>
             <p className="mt-2">Tap <span className="font-medium text-gray-100">Clear Pose</span> to remove the skeleton and all overlays.</p>
