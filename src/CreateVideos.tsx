@@ -30,7 +30,7 @@ const sleep = (ms: number) => new Promise<void>(res => setTimeout(res, ms))
 
 interface Chunk { data: Blob; ts: number }
 
-function makeFilename(ext: string, label: 'F' | 'D', impactMs: number) {
+function makeFilename(ext: string, label: 'F' | 'D', impactMs: number, fps: number) {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
   const date = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`
@@ -39,7 +39,7 @@ function makeFilename(ext: string, label: 'F' | 'D', impactMs: number) {
   const count = (parseInt(localStorage.getItem(key) ?? '0') + 1)
   localStorage.setItem(key, String(count))
   const impact = String(Math.round(impactMs)).padStart(4, '0')
-  return `${date}_${time}_${count}_${label}_${impact}.${ext}`
+  return `${date}_${time}_${count}_${label}_${impact}_${fps}.${ext}`
 }
 
 function pickMime() {
@@ -212,6 +212,7 @@ export default function CreateVideos() {
   const peakLevelRef      = useRef(0)
   const armedRef          = useRef(false)
   const configRef         = useRef<SwingConfig>(loadConfig())
+  const actualFpsRef      = useRef<number>(30)
 
   const [status,       setStatus]       = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing'>('idle')
   const [level,        setLevel]        = useState(0)
@@ -371,7 +372,12 @@ export default function CreateVideos() {
       let stream: MediaStream
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: facingRef.current }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: {
+            facingMode: { ideal: facingRef.current },
+            width:  { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 120 },
+          },
           audio: { echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } },
         })
       } catch (inner) {
@@ -379,6 +385,7 @@ export default function CreateVideos() {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingRef.current } }, audio: true })
       }
       streamRef.current = stream
+      actualFpsRef.current = Math.round(stream.getVideoTracks()[0]?.getSettings().frameRate ?? 30)
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream
@@ -591,7 +598,7 @@ export default function CreateVideos() {
           // (video.duration - impactMs/1000) — that math works whether or not
           // timecode normalization produced a perfect T=0 at the first frame.
           const impactFromEndMs = Math.round(clipChunks[clipChunks.length - 1].ts - triggerTime)
-          const filename = makeFilename(ext, isFrontRef.current ? 'F' : 'D', impactFromEndMs)
+          const filename = makeFilename(ext, isFrontRef.current ? 'F' : 'D', impactFromEndMs, actualFpsRef.current)
           saveClip(blob, filename)
           showReview(blob)
         })
@@ -691,7 +698,7 @@ export default function CreateVideos() {
       const toDelete: string[] = []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for await (const [name, handle] of (root as any).entries()) {
-        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD](?:_\d+)?\.(mp4|webm)$/.test(name)) {
+        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD](?:_\d+){0,2}\.(mp4|webm)$/.test(name)) {
           toDelete.push(name)
         }
       }
@@ -1034,7 +1041,7 @@ export default function CreateVideos() {
             {/* File names */}
             <section className="flex flex-col gap-2">
               <h3 className="font-semibold text-green-400">File names</h3>
-              <p className="text-gray-300 leading-relaxed">Files are saved as <span className="font-mono text-green-300 text-xs">YYYYMMDD_HHMMSS_count_F_1500.mp4</span> (or <span className="font-mono text-green-300 text-xs">_D_1500.mp4</span>). The <span className="font-mono text-green-300 text-xs">_1500</span> suffix encodes the impact time in milliseconds from the start of the clip. The count resets each day. All clips are saved automatically to the browser's private storage (OPFS) and accessible from the My Clips browser on the home screen.</p>
+              <p className="text-gray-300 leading-relaxed">Files are saved as <span className="font-mono text-green-300 text-xs">YYYYMMDD_HHMMSS_count_F_2250_30.mp4</span> (or <span className="font-mono text-green-300 text-xs">_D_…</span>). The second-to-last number is the impact time in milliseconds from the end of the clip; the last number is the recorded frame rate. On iPhone 18 or newer, the app automatically requests 120 fps from the camera — the player's Speed buttons and frame-step precision will reflect the actual recorded rate. The count resets each day. All clips are saved automatically to the browser's private storage (OPFS) and accessible from the My Clips browser on the home screen.</p>
             </section>
 
 

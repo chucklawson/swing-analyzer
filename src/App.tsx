@@ -11,7 +11,7 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 const hasOpfs = 'storage' in navigator && typeof (navigator.storage as any).getDirectory === 'function'
 
 function formatClipName(name: string): string {
-  const m = name.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_(\d+)_([FD])(?:_\d+)?\.(mp4|webm)$/)
+  const m = name.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_(\d+)_([FD])(?:_\d+){0,2}\.(mp4|webm)$/)
   if (!m) return name
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const view = m[8] === 'F' ? 'Front' : 'Down-the-line'
@@ -20,14 +20,24 @@ function formatClipName(name: string): string {
 
 function parseImpactMs(name: string): number | null {
   const parts = name.replace(/\.(mp4|webm)$/, '').split('_')
-  if (parts.length !== 5) return null
+  if (parts.length !== 5 && parts.length !== 6) return null
   const ms = parseInt(parts[4], 10)
   return isNaN(ms) ? null : ms
 }
 
+function parseClipFps(name: string): number {
+  const parts = name.replace(/\.(mp4|webm)$/, '').split('_')
+  if (parts.length === 6) {
+    const fps = parseInt(parts[5], 10)
+    if (!isNaN(fps) && fps > 0) return fps
+  }
+  return 30
+}
+
 const PALETTE = ['#ffffff', '#ef4444', '#f97316', '#facc15', '#22c55e', '#3b82f6', '#a855f7']
 
-const FPS_PRESETS = [30, 15, 10, 5, 2, 1]
+const DEFAULT_FPS_PRESETS = [30, 15, 10, 5, 2, 1]
+
 
 // Skeleton connections (landmark index pairs) — skips face landmarks
 const BODY_CONNECTIONS: [number, number][] = [
@@ -148,6 +158,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [videoName, setVideoName] = useState<string>('')
   const [impactMs, setImpactMs] = useState<number | null>(null)
+  const [clipFps, setClipFps] = useState(FRAME_RATE)
   const [isPaused, setIsPaused] = useState(false)
   const [drag, setDrag] = useState<DragState | null>(null)
   const [zoom, setZoom] = useState<ZoomState | null>(null)
@@ -158,6 +169,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [hLineMode, setHLineMode] = useState(false)
   const [vLineMode, setVLineMode] = useState(false)
   const [playbackFPS, setPlaybackFPS] = useState(FRAME_RATE)
+  const fpsPresets = clipFps > 30
+    ? [clipFps, 60, 30, 15, 10, 5, 2, 1].filter((v, i, a) => a.indexOf(v) === i)
+    : [30, 15, 10, 5, 2, 1]
   const [poseStatus, setPoseStatus] = useState<'idle' | 'loading' | 'detected' | 'none'>('idle')
   const [showWristAngles, setShowWristAngles] = useState(false)
   const showWristAnglesRef = useRef(false)
@@ -435,8 +449,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   useEffect(() => { vLineModeRef.current = vLineMode }, [vLineMode])
   useEffect(() => {
     const video = videoRef.current
-    if (video) video.playbackRate = playbackFPS / FRAME_RATE
-  }, [playbackFPS])
+    if (video) video.playbackRate = playbackFPS / clipFps
+  }, [playbackFPS, clipFps])
 
   useEffect(() => {
     if (!videoUrl) return
@@ -555,7 +569,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     if (!video) return
     video.pause()
     setIsPaused(true)
-    video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + direction / FRAME_RATE))
+    video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + direction / clipFps))
     if (poseActiveRef.current && cachedLandmarker) runPoseOnSeeked(video)
   }
 
@@ -599,7 +613,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     const video = videoRef.current
     if (!video) return
     if (video.ended) video.currentTime = 0
-    video.playbackRate = playbackFPS / FRAME_RATE
+    video.playbackRate = playbackFPS / clipFps
     video.play().catch((err: unknown) => { if ((err as Error)?.name !== 'AbortError') console.warn('video.play rejected:', err) })
     setIsPaused(false)
     if (poseActiveRef.current && !animFrameRef.current) {
@@ -636,6 +650,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     setVideoUrl(URL.createObjectURL(file))
     setVideoName(file.name)
     setImpactMs(parseImpactMs(file.name))
+    setClipFps(parseClipFps(file.name))
+    setPlaybackFPS(parseClipFps(file.name))
     setIsPaused(true)
     setZoom(null)
     setZoomMode(false)
@@ -654,7 +670,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       const clips: { name: string; handle: any }[] = []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for await (const [name, handle] of (root as any).entries()) {
-        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD](?:_\d+)?\.(mp4|webm)$/.test(name)) {
+        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD](?:_\d+){0,2}\.(mp4|webm)$/.test(name)) {
           clips.push({ name, handle })
         }
       }
@@ -671,6 +687,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     setVideoUrl(URL.createObjectURL(file))
     setVideoName(file.name)
     setImpactMs(parseImpactMs(file.name))
+    setClipFps(parseClipFps(file.name))
+    setPlaybackFPS(parseClipFps(file.name))
     setIsPaused(true)
     setZoom(null)
     setZoomMode(false)
@@ -1241,7 +1259,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
           )}
           <div className="flex items-center gap-1 flex-wrap justify-center">
             <span className="text-xs text-gray-500 mr-1">Speed:</span>
-            {FPS_PRESETS.map(fps => (
+            {fpsPresets.map(fps => (
               <button
                 key={fps}
                 onClick={() => setPlaybackFPS(fps)}
@@ -1615,7 +1633,7 @@ function App() {
         </div>
         <div className="flex items-center gap-1 flex-wrap justify-center">
           <span className="text-xs text-gray-500 mr-1">Both Speed:</span>
-          {FPS_PRESETS.map(fps => (
+          {DEFAULT_FPS_PRESETS.map(fps => (
             <button
               key={fps}
               onClick={() => { player1.current?.setFPS(fps); player2.current?.setFPS(fps) }}
