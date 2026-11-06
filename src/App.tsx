@@ -534,23 +534,29 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     }
   }, [videoUrl])
 
+  function runPoseOnSeeked(video: HTMLVideoElement) {
+    const onSeeked = () => {
+      video.removeEventListener('seeked', onSeeked)
+      // rAF ensures the browser has fully decoded and painted the new frame
+      // before MediaPipe inspects the video element.
+      requestAnimationFrame(() => {
+        const result = cachedLandmarker.detectForVideo(video, performance.now())
+        if (result.landmarks.length > 0) {
+          poseResultRef.current = result.landmarks[0]
+        }
+        redrawCanvas()
+      })
+    }
+    video.addEventListener('seeked', onSeeked)
+  }
+
   function stepFrame(direction: 1 | -1) {
     const video = videoRef.current
     if (!video) return
     video.pause()
     setIsPaused(true)
     video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + direction / FRAME_RATE))
-    if (poseActiveRef.current && cachedLandmarker) {
-      const onSeeked = () => {
-        video.removeEventListener('seeked', onSeeked)
-        const result = cachedLandmarker.detectForVideo(video, performance.now())
-        if (result.landmarks.length > 0) {
-          poseResultRef.current = result.landmarks[0]
-          redrawCanvas()
-        }
-      }
-      video.addEventListener('seeked', onSeeked)
-    }
+    if (poseActiveRef.current && cachedLandmarker) runPoseOnSeeked(video)
   }
 
   function reset() {
@@ -559,17 +565,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     video.pause()
     video.currentTime = 0
     setIsPaused(true)
-    if (poseActiveRef.current && cachedLandmarker) {
-      const onSeeked = () => {
-        video.removeEventListener('seeked', onSeeked)
-        const result = cachedLandmarker.detectForVideo(video, performance.now())
-        if (result.landmarks.length > 0) {
-          poseResultRef.current = result.landmarks[0]
-          redrawCanvas()
-        }
-      }
-      video.addEventListener('seeked', onSeeked)
-    }
+    if (poseActiveRef.current && cachedLandmarker) runPoseOnSeeked(video)
   }
 
   function seekToImpact() {
@@ -580,17 +576,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     video.pause()
     setIsPaused(true)
     video.currentTime = target
-    if (poseActiveRef.current && cachedLandmarker) {
-      const onSeeked = () => {
-        video.removeEventListener('seeked', onSeeked)
-        const result = cachedLandmarker.detectForVideo(video, performance.now())
-        if (result.landmarks.length > 0) {
-          poseResultRef.current = result.landmarks[0]
-          redrawCanvas()
-        }
-      }
-      video.addEventListener('seeked', onSeeked)
-    }
+    if (poseActiveRef.current && cachedLandmarker) runPoseOnSeeked(video)
   }
 
   function runPoseLoop() {
@@ -1133,7 +1119,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
                 onClick={seekToImpact}
                 className="px-4 py-2 rounded-lg bg-orange-700 hover:bg-orange-600 text-white font-mono text-sm transition-colors"
               >
-                Impact
+                On Impact
               </button>
             )}
             <button
@@ -1397,7 +1383,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <section>
             <h3 className="text-base font-semibold text-white mb-2">Playback Controls</h3>
             <ul className="flex flex-col gap-1.5 list-none">
-              <li><span className="font-mono text-orange-400">Impact</span> — Jump directly to the moment of ball impact. Appears only on clips recorded by the app (the impact time is embedded in the filename). Great for quickly comparing impact position across swings.</li>
+              <li><span className="font-mono text-orange-400">On Impact</span> — Jump directly to the moment of ball impact. Appears only on clips recorded by the app (the impact time is embedded in the filename). Great for quickly comparing impact position across swings.</li>
               <li><span className="font-mono text-gray-100">⏮</span> — Jump back to the start of the video.</li>
               <li><span className="font-mono text-gray-100">◀ Frame / Frame ▶</span> — Step one frame backward or forward (1/30 sec). Useful for finding the exact moment of impact.</li>
               <li><span className="font-mono text-gray-100">▶ Play / ⏸ Pause</span> — Play or pause the video. Playback speed follows whatever is set in the Speed row.</li>
