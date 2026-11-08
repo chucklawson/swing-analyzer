@@ -168,6 +168,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   const [hasStartPoint, setHasStartPoint] = useState(false)
   const [hLineMode, setHLineMode] = useState(false)
   const [vLineMode, setVLineMode] = useState(false)
+  const [extendToEdge, setExtendToEdge] = useState(false)
   const [playbackFPS, setPlaybackFPS] = useState(FRAME_RATE)
   const fpsPresets = clipFps > 30
     ? [clipFps, 60, 30, 15, 10, 5, 2, 1].filter((v, i, a) => a.indexOf(v) === i)
@@ -459,8 +460,19 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     if (!container || !canvas) return
 
     const observer = new ResizeObserver(() => {
+      const prevW = canvas.width || container.offsetWidth
+      const prevH = canvas.height || container.offsetHeight
       canvas.width = container.offsetWidth
       canvas.height = container.offsetHeight
+      const scaleX = canvas.width / prevW
+      const scaleY = canvas.height / prevH
+      if (scaleX !== 1 || scaleY !== 1) {
+        linesRef.current = linesRef.current.map(l => ({
+          ...l,
+          x1: l.x1 * scaleX, y1: l.y1 * scaleY,
+          x2: l.x2 * scaleX, y2: l.y2 * scaleY,
+        }))
+      }
       redrawCanvas()
     })
     observer.observe(container)
@@ -839,19 +851,44 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   }
 
   // --- Draw handlers (two-click/two-tap: first sets start point, second draws line) ---
+  function extendLineToCanvas(x1: number, y1: number, x2: number, y2: number, w: number, h: number): [number, number, number, number] {
+    const dx = x2 - x1
+    const dy = y2 - y1
+    if (dx === 0 && dy === 0) return [x1, y1, x2, y2]
+    const ts: number[] = []
+    if (dx !== 0) { ts.push(-x1 / dx); ts.push((w - x1) / dx) }
+    if (dy !== 0) { ts.push(-y1 / dy); ts.push((h - y1) / dy) }
+    const eps = 0.001
+    const valid = ts.filter(t => {
+      const px = x1 + t * dx; const py = y1 + t * dy
+      return px >= -eps && px <= w + eps && py >= -eps && py <= h + eps
+    })
+    if (valid.length < 2) return [x1, y1, x2, y2]
+    const tMin = Math.min(...valid); const tMax = Math.max(...valid)
+    return [x1 + tMin * dx, y1 + tMin * dy, x1 + tMax * dx, y1 + tMax * dy]
+  }
+
   function placeHLine(x: number, y: number) {
     const canvas = canvasRef.current
     if (!canvas) return
-    const half = canvas.width / 4   // ±quarter width → total = half viewport width
-    linesRef.current.push({ x1: x - half, y1: y, x2: x + half, y2: y, color: drawColor })
+    if (extendToEdge) {
+      linesRef.current.push({ x1: 0, y1: y, x2: canvas.width, y2: y, color: drawColor })
+    } else {
+      const half = canvas.width / 4   // ±quarter width → total = half viewport width
+      linesRef.current.push({ x1: x - half, y1: y, x2: x + half, y2: y, color: drawColor })
+    }
     redrawCanvas()
   }
 
   function placeVLine(x: number, y: number) {
     const canvas = canvasRef.current
     if (!canvas) return
-    const half = canvas.height / 4   // ±quarter height → total = half viewport height
-    linesRef.current.push({ x1: x, y1: y - half, x2: x, y2: y + half, color: drawColor })
+    if (extendToEdge) {
+      linesRef.current.push({ x1: x, y1: 0, x2: x, y2: canvas.height, color: drawColor })
+    } else {
+      const half = canvas.height / 4   // ±quarter height → total = half viewport height
+      linesRef.current.push({ x1: x, y1: y - half, x2: x, y2: y + half, color: drawColor })
+    }
     redrawCanvas()
   }
 
@@ -865,7 +902,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       setHasStartPoint(true)
       redrawCanvas()
     } else {
-      linesRef.current.push({ x1: drawStartRef.current.x, y1: drawStartRef.current.y, x2: x, y2: y, color: drawStartRef.current.color })
+      const canvas = canvasRef.current
+      let [lx1, ly1, lx2, ly2] = [drawStartRef.current.x, drawStartRef.current.y, x, y]
+      if (extendToEdge && canvas) {
+        ;[lx1, ly1, lx2, ly2] = extendLineToCanvas(lx1, ly1, lx2, ly2, canvas.width, canvas.height)
+      }
+      linesRef.current.push({ x1: lx1, y1: ly1, x2: lx2, y2: ly2, color: drawStartRef.current.color })
       drawStartRef.current = null
       setHasStartPoint(false)
       setDrawMode(false)
@@ -889,7 +931,11 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       setHasStartPoint(true)
       redrawCanvas()
     } else {
-      linesRef.current.push({ x1: drawStartRef.current.x, y1: drawStartRef.current.y, x2: x, y2: y, color: drawStartRef.current.color })
+      let [lx1, ly1, lx2, ly2] = [drawStartRef.current.x, drawStartRef.current.y, x, y]
+      if (extendToEdge) {
+        ;[lx1, ly1, lx2, ly2] = extendLineToCanvas(lx1, ly1, lx2, ly2, canvas.width, canvas.height)
+      }
+      linesRef.current.push({ x1: lx1, y1: ly1, x2: lx2, y2: ly2, color: drawStartRef.current.color })
       drawStartRef.current = null
       setHasStartPoint(false)
       setDrawMode(false)
@@ -1129,6 +1175,15 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
               >
                 Clear
               </button>
+              <label className="ml-2 flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={extendToEdge}
+                  onChange={e => setExtendToEdge(e.target.checked)}
+                  className="accent-sky-500 w-3.5 h-3.5"
+                />
+                Extend to edge
+              </label>
             </div>
           )}
 
