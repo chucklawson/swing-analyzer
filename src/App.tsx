@@ -857,8 +857,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
 
   function handleCanvasClick(e: React.MouseEvent) {
     const { x, y } = getCoordsRelativeToContainer(e)
-    if (hLineMode) { placeHLine(x, y); return }
-    if (vLineMode) { placeVLine(x, y); return }
+    if (hLineMode) { placeHLine(x, y); setHLineMode(false); return }
+    if (vLineMode) { placeVLine(x, y); setVLineMode(false); return }
     if (!drawMode) return
     if (!drawStartRef.current) {
       drawStartRef.current = { x, y, color: drawColor }
@@ -868,6 +868,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       linesRef.current.push({ x1: drawStartRef.current.x, y1: drawStartRef.current.y, x2: x, y2: y, color: drawStartRef.current.color })
       drawStartRef.current = null
       setHasStartPoint(false)
+      setDrawMode(false)
       redrawCanvas()
     }
   }
@@ -881,8 +882,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
     const touch = e.changedTouches[0]
     const x = touch.clientX - rect.left
     const y = touch.clientY - rect.top
-    if (hLineMode) { placeHLine(x, y); return }
-    if (vLineMode) { placeVLine(x, y); return }
+    if (hLineMode) { placeHLine(x, y); setHLineMode(false); return }
+    if (vLineMode) { placeVLine(x, y); setVLineMode(false); return }
     if (!drawStartRef.current) {
       drawStartRef.current = { x, y, color: drawColor }
       setHasStartPoint(true)
@@ -891,6 +892,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
       linesRef.current.push({ x1: drawStartRef.current.x, y1: drawStartRef.current.y, x2: x, y2: y, color: drawStartRef.current.color })
       drawStartRef.current = null
       setHasStartPoint(false)
+      setDrawMode(false)
       redrawCanvas()
     }
   }
