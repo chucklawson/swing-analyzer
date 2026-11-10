@@ -213,6 +213,8 @@ export default function CreateVideos() {
   const armedRef          = useRef(false)
   const configRef         = useRef<SwingConfig>(loadConfig())
   const actualFpsRef      = useRef<number>(30)
+  const lastClipBlobRef   = useRef<Blob | null>(null)
+  const capAt10Ref        = useRef(false)
 
   const [status,       setStatus]       = useState<'idle' | 'starting' | 'listening' | 'recording' | 'reviewing'>('idle')
   const [level,        setLevel]        = useState(0)
@@ -222,6 +224,8 @@ export default function CreateVideos() {
   const [reviewTap,    setReviewTap]    = useState(false)
   const [config,       setConfig]       = useState<SwingConfig>(() => loadConfig())
   const [roi,          setRoi]          = useState<NormalizedRect>(() => loadConfig().roi)
+  const [hasLastClip,  setHasLastClip]  = useState(false)
+  const [capAt10,      setCapAt10]      = useState(() => localStorage.getItem('capAt10') === 'true')
   const [debugOpen,    setDebugOpen]    = useState(false)
   const [fusionLog,    setFusionLog]    = useState<string[]>([])
   const [fitInfo,      setFitInfo]      = useState<VideoFitInfo>({
@@ -262,6 +266,7 @@ export default function CreateVideos() {
   // Keep refs in sync so callbacks always read the latest values
   useEffect(() => { roiRef.current = roi }, [roi])
   useEffect(() => { configRef.current = config }, [config])
+  useEffect(() => { capAt10Ref.current = capAt10; localStorage.setItem('capAt10', String(capAt10)) }, [capAt10])
   // Wire debug canvas to ball detector after it renders; also clears it when closed
   useEffect(() => {
     const isActive = status === 'listening' || status === 'recording' || status === 'reviewing'
@@ -599,7 +604,10 @@ export default function CreateVideos() {
           // timecode normalization produced a perfect T=0 at the first frame.
           const impactFromEndMs = Math.round(clipChunks[clipChunks.length - 1].ts - triggerTime)
           const filename = makeFilename(ext, isFrontRef.current ? 'F' : 'D', impactFromEndMs, actualFpsRef.current)
+          lastClipBlobRef.current = blob
+          setHasLastClip(true)
           saveClip(blob, filename)
+          if (capAt10Ref.current) enforceClipCap()
           showReview(blob)
         })
       } else {
@@ -710,6 +718,25 @@ export default function CreateVideos() {
     setClearCount(count)
     setClearStatus('done')
     setTimeout(() => setClearStatus(null), 4000)
+  }
+
+  async function enforceClipCap() {
+    if (!hasOpfs) return
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const root = await (navigator.storage as any).getDirectory()
+      const clips: string[] = []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for await (const [name, handle] of (root as any).entries()) {
+        if (handle.kind === 'file' && /^\d{8}_\d{6}_\d+_[FD](?:_\d+){0,2}\.(mp4|webm)$/.test(name)) {
+          clips.push(name)
+        }
+      }
+      clips.sort() // lexicographic = chronological (YYYYMMDD_HHMMSS prefix)
+      while (clips.length > 10) {
+        await root.removeEntry(clips.shift()!)
+      }
+    } catch { /* silent */ }
   }
 
   // ── Auto-calibrate ──────────────────────────────────────────────────────────
@@ -1062,9 +1089,16 @@ export default function CreateVideos() {
           title="Home"
         >⌂</button>
         <h1 className="text-3xl font-semibold tracking-tight">Create Videos</h1>
+        {hasLastClip && status !== 'recording' && status !== 'reviewing' && (
+          <button
+            onClick={() => showReview(lastClipBlobRef.current!)}
+            className="ml-auto w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-white text-lg transition-colors"
+            title="Replay last clip"
+          >↺</button>
+        )}
         <button
           onClick={() => setShowHelp(true)}
-          className="ml-auto w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-gray-300 font-semibold cursor-pointer"
+          className={`${hasLastClip && status !== 'recording' && status !== 'reviewing' ? '' : 'ml-auto '}w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-gray-300 font-semibold cursor-pointer`}
           title="Help"
         >?</button>
       </div>
@@ -1490,7 +1524,7 @@ export default function CreateVideos() {
         </div>
       )}
 
-      <div className="w-full max-w-2xl flex items-center justify-between">
+      <div className="w-full max-w-2xl flex items-center justify-between flex-wrap gap-3">
         <label className="flex items-center gap-2.5 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -1504,6 +1538,15 @@ export default function CreateVideos() {
           <span className="text-gray-300 text-sm">
             Front <span className="text-gray-500 text-xs ml-1">(unchecked = Down the line · files saved as …_{isFront ? 'F' : 'D'}.mp4)</span>
           </span>
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={capAt10}
+            onChange={e => setCapAt10(e.target.checked)}
+            className="w-4 h-4 accent-green-400 cursor-pointer"
+          />
+          <span className="text-gray-300 text-sm">Cap clips at 10 <span className="text-gray-500 text-xs">(auto-delete oldest)</span></span>
         </label>
       </div>
 
