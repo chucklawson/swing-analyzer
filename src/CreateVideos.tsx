@@ -1091,7 +1091,7 @@ export default function CreateVideos() {
         <h1 className="text-3xl font-semibold tracking-tight">Create Videos</h1>
         {hasLastClip && status !== 'recording' && status !== 'reviewing' && (
           <button
-            onClick={() => showReview(lastClipBlobRef.current!)}
+            onClick={() => { stopRollingRecorder(); showReview(lastClipBlobRef.current!) }}
             className="ml-auto w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-white text-lg transition-colors"
             title="Replay last clip"
           >↺</button>
