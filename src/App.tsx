@@ -597,7 +597,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, { label: string }>(({ label },
   function seekToImpact() {
     const video = videoRef.current
     if (!video || impactMs === null) return
-    const target = video.duration - impactMs / 1000 - 2 / clipFps
+    const target = video.duration - impactMs / 1000 - 2 / 30
     if (isNaN(target) || target < 0) return
     video.pause()
     setIsPaused(true)
